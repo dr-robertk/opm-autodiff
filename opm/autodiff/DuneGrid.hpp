@@ -54,8 +54,11 @@ namespace Opm
         typedef typename Element :: Geometry ElementGeometry ;
         typedef typename ElementGeometry :: GlobalCoordinate GlobalCoordinate;
 
-        DuneGrid(Opm::DeckConstPtr deck)
+        DuneGrid(Opm::DeckConstPtr deck, const std::vector<double>& porv )
         {
+            if( porv.size() > 0 )
+                OPM_THROW(std::runtime_error,"PORV not yet supported by DuneGrid");
+
             Dune::CpGrid cpgrid;
             // create CpGrid from deck
             cpgrid.processEclipseFormat(deck, 0.0, false, false);
@@ -69,8 +72,9 @@ namespace Opm
 
             assert( grid_->size( 0 ) == cpgrid.numCells() );
 
-            //ug_.reset( init( *grid_, cpgrid.uniqueBoundaryIds() ) );
-            ug_.reset( init( *grid_, true ) );
+            // create an UnstructuredGrid
+            ug_.reset( dune2UnstructuredGrid( *grid_, true ) );
+
             for( int d=0; d<dimension; ++d )
                 ug_->cartdims[ d ] = cpgrid.logicalCartesianSize()[ d ];
 
@@ -82,6 +86,7 @@ namespace Opm
             std::copy( cpgrid.globalCell().begin(), cpgrid.globalCell().end(), ug_->global_cell );
         }
 
+        /// \brief destructor destroying the UnstructuredGrid
         ~DuneGrid()
         {
             UnstructuredGrid* ug = ug_.release();
@@ -94,7 +99,7 @@ namespace Opm
         // return unstructured grid
         UnstructuredGrid& c_grid() { return *ug_; }
 
-        UnstructuredGrid* init( Grid& grid, const bool faceTags )
+        UnstructuredGrid* dune2UnstructuredGrid( Grid& grid, const bool faceTags )
         {
             typedef typename Grid :: ctype ctype;
             typedef typename Grid :: LeafGridView GridView ;

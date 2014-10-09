@@ -132,7 +132,7 @@ try
 
     // create a grid (powered by DUNE::Grid)
     typedef Dune :: ALUGrid< 3, 3, Dune::cube, Dune::nonconforming > GridImpl;
-    Opm::DuneGrid< GridImpl > grid( deck );
+    Opm::DuneGrid< GridImpl > grid( deck, porv );
 
     //grid.reset(new GridManager(eclipseState->getEclipseGrid(), porv));
     auto &cGrid = grid.c_grid();
