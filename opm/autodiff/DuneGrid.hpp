@@ -28,6 +28,13 @@
 #error This header needs the dune-cornerpoint module
 #endif
 
+#if HAVE_DUNE_ALUGRID
+#include <dune/alugrid/common/fromtogridfactory.hh>
+#else
+#error This header needs the dune-alugrid module
+#endif
+
+
 namespace Opm
 {
     template <class GridImpl>     
@@ -128,16 +135,16 @@ namespace Opm
                 // currently only hexahedrons are supported
                 // assert( element.type().isHexahedron() );
 
-                const int index = indexSet.index( element );
+                const int elIndex = indexSet.index( element );
                 // make sure that the elements are ordered as before,
                 // otherwise the globalCell mapping is invalid
-                assert( count == index );
+                assert( count == elIndex );
 
                 const GlobalCoordinate center = geometry.center();
-                int idx = index * dimension;
+                int idx = elIndex * dimension;
                 for( int d=0; d<dimension; ++d, ++idx )
                     ug->cell_centroids[ idx ] = center[ d ];
-                ug->cell_volumes[ index ] = geometry.volume();
+                ug->cell_volumes[ elIndex ] = geometry.volume();
 
                 const int vertices = geometry.corners();
                 for( int vx=0; vx<vertices; ++vx )
@@ -148,7 +155,7 @@ namespace Opm
                         ug->node_coordinates[ idx ] = vertex[ d ];
                 }
 
-                ug->cell_facepos[ index ] = cellFace;
+                ug->cell_facepos[ elIndex ] = cellFace;
 
                 const Dune::ReferenceElement< ctype, dimension > &refElem
                         = Dune::ReferenceElements< ctype, dimension >::general( element.type() );
@@ -198,22 +205,22 @@ namespace Opm
                         ElementPointer ep = intersection.outside();
                         const Element& neighbor = *ep;
                         const int nbIndex = indexSet.index( neighbor );
-                        if( index < nbIndex )
+                        if( elIndex < nbIndex )
                         {
-                            ug->face_cells[ 2*faceIndex     ] = index;
+                            ug->face_cells[ 2*faceIndex     ] = elIndex;
                             ug->face_cells[ 2*faceIndex + 1 ] = nbIndex;
                         }
                         else
                         {
                             ug->face_cells[ 2*faceIndex     ] = nbIndex;
-                            ug->face_cells[ 2*faceIndex + 1 ] = index;
+                            ug->face_cells[ 2*faceIndex + 1 ] = elIndex;
                             // flip normal
                             normal *= -1.0;
                         }
                     }
                     else
                     {
-                        ug->face_cells[ 2*faceIndex     ] = index;
+                        ug->face_cells[ 2*faceIndex     ] = elIndex;
                         ug->face_cells[ 2*faceIndex + 1 ] = -1; // boundary
                     }
 
