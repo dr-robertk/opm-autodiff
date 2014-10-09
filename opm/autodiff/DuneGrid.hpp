@@ -54,7 +54,7 @@ namespace Opm
         typedef typename Element :: Geometry ElementGeometry ;
         typedef typename ElementGeometry :: GlobalCoordinate GlobalCoordinate;
 
-        DuneGrid(Opm::DeckConstPtr deck) 
+        DuneGrid(Opm::DeckConstPtr deck)
         {
             Dune::CpGrid cpgrid;
             // create CpGrid from deck
@@ -69,35 +69,40 @@ namespace Opm
 
             assert( grid_->size( 0 ) == cpgrid.numCells() );
 
-            ug_.reset( init( *grid_ ) );
+            //ug_.reset( init( *grid_, cpgrid.uniqueBoundaryIds() ) );
+            ug_.reset( init( *grid_, true ) );
             for( int d=0; d<dimension; ++d )
                 ug_->cartdims[ d ] = cpgrid.logicalCartesianSize()[ d ];
 
             assert( ug_->number_of_cells > 0 );
-            if( ! ug_->global_cell ) 
+            if( ! ug_->global_cell )
                 ug_->global_cell = (int *) std::malloc( ug_->number_of_cells * sizeof(int) );
             assert( int(cpgrid.globalCell().size()) == ug_->number_of_cells );
             // copy global cell information
             std::copy( cpgrid.globalCell().begin(), cpgrid.globalCell().end(), ug_->global_cell );
+        }
 
-            std::exit( 0 );
+        ~DuneGrid()
+        {
+            UnstructuredGrid* ug = ug_.release();
+            destroy_grid( ug );
         }
 
         // return Dune::Grid
         Grid& grid() { return *grid_; }
 
-        // return unstructured grid 
+        // return unstructured grid
         UnstructuredGrid& c_grid() { return *ug_; }
 
-        UnstructuredGrid* init( Grid& grid ) 
+        UnstructuredGrid* init( Grid& grid, const bool faceTags )
         {
             typedef typename Grid :: ctype ctype;
             typedef typename Grid :: LeafGridView GridView ;
             typedef typename GridView :: template Codim< 0 > :: Iterator Iterator;
             typedef typename GridView :: IntersectionIterator      IntersectionIterator;
             typedef typename IntersectionIterator :: Intersection  Intersection;
-            typedef typename Intersection :: Geometry             IntersectionGeometry;
-            typedef typename GridView :: IndexSet                 IndexSet;
+            typedef typename Intersection :: Geometry              IntersectionGeometry;
+            typedef typename GridView :: IndexSet                  IndexSet;
 
             GridView gridView = grid.leafGridView();
             const IndexSet& indexSet = gridView.indexSet();
@@ -105,40 +110,47 @@ namespace Opm
             const int numCells = indexSet.size( 0 );
             const int numFaces = indexSet.size( 1 );
             const int numNodes = indexSet.size( dimension );
-            const int numVerticesPerFace = 4;
-            const int numFacesPerCell    = 6;
+
+            const int maxNumVerticesPerFace = 4;
+            const int maxNumFacesPerCell    = 6;
 
             // create Unstructured grid struct
             UnstructuredGrid* ug = allocate_grid( dimension, numCells, numFaces,
-                    numFaces*numVerticesPerFace, numCells*numFacesPerCell, numNodes ); 
+                    numFaces*maxNumVerticesPerFace,
+                    numCells * maxNumFacesPerCell,
+                    numNodes );
 
             int count = 0;
+            int cellFace = 0;
             const Iterator end = gridView.template end<0> ();
             for( Iterator it = gridView.template begin<0> (); it != end; ++it, ++count )
             {
-                const Element& element = *it ;
+                const Element& element = *it;
                 const ElementGeometry geometry = element.geometry();
+
+                // currently only hexahedrons are supported
+                // assert( element.type().isHexahedron() );
+
                 const int index = indexSet.index( element );
-                // make sure that the elements are ordered as before, 
+                // make sure that the elements are ordered as before,
                 // otherwise the globalCell mapping is invalid
-                assert( count == index ); 
+                assert( count == index );
 
                 const GlobalCoordinate center = geometry.center();
-                int idx = index * dimension ;
+                int idx = index * dimension;
                 for( int d=0; d<dimension; ++d, ++idx )
                     ug->cell_centroids[ idx ] = center[ d ];
                 ug->cell_volumes[ index ] = geometry.volume();
-                
+
                 const int vertices = geometry.corners();
-                for( int vx=0; vx<vertices; ++vx ) 
+                for( int vx=0; vx<vertices; ++vx )
                 {
                     const GlobalCoordinate vertex = geometry.corner( vx );
-                    int idx = indexSet.subIndex( element, vx, dimension ) * dimension ;
+                    int idx = indexSet.subIndex( element, vx, dimension ) * dimension;
                     for( int d=0; d<dimension; ++d, ++idx )
                         ug->node_coordinates[ idx ] = vertex[ d ];
                 }
 
-                const int cellFace = numFacesPerCell * indexSet.index( element );
                 ug->cell_facepos[ index ] = cellFace;
 
                 const Dune::ReferenceElement< ctype, dimension > &refElem
@@ -159,7 +171,9 @@ namespace Opm
 
                     // get number of vertices (should be 4)
                     const int vxSize = refElem.size( localFace, 1, dimension );
-                    int faceIdx = faceIndex * numVerticesPerFace ;
+                    int faceIdx = faceIndex * maxNumVerticesPerFace ;
+                    ug->face_nodepos[ faceIndex   ] = faceIdx;
+                    ug->face_nodepos[ faceIndex+1 ] = faceIdx + maxNumVerticesPerFace;
                     for( int vx=0; vx<vxSize; ++vx, ++faceIdx )
                     {
                         const int localVx = refElem.subEntity( localFace, 1, vx, dimension );
@@ -167,13 +181,18 @@ namespace Opm
                         ug->face_nodes[ faceIdx ] = vxIndex ;
                     }
 
-                    assert( vxSize == numVerticesPerFace );
-                    assert( localFace < numFacesPerCell );
+                    assert( vxSize    <= maxNumVerticesPerFace );
+                    assert( localFace <  maxNumFacesPerCell );
 
                     // store cell --> face relation
-                    ug->cell_faces[ cellFace + localFace ] = faceIndex;
+                    ug->cell_faces  [ cellFace + localFace ] = faceIndex;
+                    if( faceTags )
+                    {
+                        // fill logical cartesian orientation of the face (here indexInInside)
+                        ug->cell_facetag[ cellFace + localFace ] = localFace;
+                    }
 
-                    GlobalCoordinate normal = intersection.centerUnitOuterNormal();   
+                    GlobalCoordinate normal = intersection.centerUnitOuterNormal();
                     normal *= faceVol;
 
                     // store face --> cell relation
@@ -182,12 +201,12 @@ namespace Opm
                         ElementPointer ep = intersection.outside();
                         const Element& neighbor = *ep;
                         const int nbIndex = indexSet.index( neighbor );
-                        if( index < nbIndex ) 
+                        if( index < nbIndex )
                         {
                             ug->face_cells[ 2*faceIndex     ] = index;
                             ug->face_cells[ 2*faceIndex + 1 ] = nbIndex;
                         }
-                        else 
+                        else
                         {
                             ug->face_cells[ 2*faceIndex     ] = nbIndex;
                             ug->face_cells[ 2*faceIndex + 1 ] = index;
@@ -195,7 +214,7 @@ namespace Opm
                             normal *= -1.0;
                         }
                     }
-                    else 
+                    else
                     {
                         ug->face_cells[ 2*faceIndex     ] = index;
                         ug->face_cells[ 2*faceIndex + 1 ] = -1; // boundary
@@ -203,21 +222,31 @@ namespace Opm
 
                     const GlobalCoordinate center = intersectionGeometry.center();
                     // store normal
-                    int idx = faceIndex * dimension ;
+                    int idx = faceIndex * dimension;
                     for( int d=0; d<dimension; ++d, ++idx )
                     {
                         ug->face_normals  [ idx ] = normal[ d ];
                         ug->face_centroids[ idx ] = center[ d ];
                     }
                 }
-                if( faceCount != numFacesPerCell ) 
+                if( faceCount > maxNumFacesPerCell )
                     OPM_THROW(std::logic_error,"DuneGrid only supports conforming hexahedral currently");
+                cellFace += faceCount;
             }
+            // set last entry
+            ug->cell_facepos[ numCells ] = cellFace;
+
+            if( cellFace < numFaces * maxNumFacesPerCell )
+            {
+                // reallocate data
+                // ug->cell_faces
+            }
+
             return ug;
         }
 
-    protected:        
-        std::unique_ptr< Grid > grid_; 
+    protected:
+        std::unique_ptr< Grid > grid_;
         std::unique_ptr< UnstructuredGrid > ug_;
     };
 } // end namespace Opm
