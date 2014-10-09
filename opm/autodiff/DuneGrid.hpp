@@ -28,16 +28,8 @@
 #error This header needs the dune-cornerpoint module
 #endif
 
-#if HAVE_DUNE_ALUGRID
-#include <dune/alugrid/dgf.hh>
-#include <dune/alugrid/common/fromtogridfactory.hh>
-#else
-#error This header needs the dune-alugrid module
-#endif
-
 namespace Opm
 {
-
     template <class GridImpl>     
     class DuneGrid
     {
