@@ -21,13 +21,14 @@
 
 #include <opm/core/grid.h>
 
+// we need dune-cornerpoint for reading the Dune grid.
+#if HAVE_DUNE_CORNERPOINT
+#include <dune/grid/CpGrid.hpp>
+#else
+#error This header needs the dune-cornerpoint module
+#endif
 
 #if HAVE_DUNE_ALUGRID
-    #if HAVE_DUNE_CORNERPOINT
-    #include <dune/grid/CpGrid.hpp>
-    #else
-    #error This header needs the dune-cornerpoint module
-    #endif
 #include <dune/alugrid/dgf.hh>
 #include <dune/alugrid/common/fromtogridfactory.hh>
 #else
@@ -37,12 +38,11 @@
 namespace Opm
 {
 
-    template <class G>     
+    template <class GridImpl>     
     class DuneGrid
     {
     public:
-        // hardcode ALUGrid for the moment
-        typedef Dune :: ALUGrid< 3, 3, Dune::cube, Dune::nonconforming > Grid;
+        typedef GridImpl Grid;
 
         static const int dimension = Grid :: dimension ;
 

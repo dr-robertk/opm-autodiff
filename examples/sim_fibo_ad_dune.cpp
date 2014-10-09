@@ -61,6 +61,12 @@
 #include <vector>
 #include <numeric>
 
+#if HAVE_DUNE_ALUGRID
+#include <dune/alugrid/dgf.hh>
+#include <dune/alugrid/common/fromtogridfactory.hh>
+#else
+#error This header needs the dune-alugrid module
+#endif
 
 namespace
 {
@@ -125,7 +131,8 @@ try
     }
 
     // create a grid (powered by DUNE::Grid)
-    Opm::DuneGrid<int> grid( deck );
+    typedef Dune :: ALUGrid< 3, 3, Dune::cube, Dune::nonconforming > GridImpl;
+    Opm::DuneGrid< GridImpl > grid( deck );
 
     //grid.reset(new GridManager(eclipseState->getEclipseGrid(), porv));
     auto &cGrid = grid.c_grid();
