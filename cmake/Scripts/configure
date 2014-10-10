@@ -39,6 +39,7 @@ Optional Packages:
   --with-ug=PATH          use the UG libraries from a specified location
   --with-alugrid=PATH     use the ALUGrid library from a specified location
   --with-metis=PATH       use the METIS graph partitioning library from a specified location
+  --with-zoltan=PATH      use the ZOLTAN graph partitioning library from a specified location
   --with-boost=PATH       use Boost library from a specified location
   --with-dune=PATH        specify parent of all DUNE modules not specified
   --with-dune-MODULE=PATH use given DUNE module from a specified location
@@ -262,6 +263,7 @@ for OPT in "$@"; do
             opm-*       |\
             dune        |\
             dune-*      |\
+            zoltan      |\
             zlib)
               rootvar="$(uppercase ${pkgname})_ROOT"
               rootvar="${rootvar/-/_}"

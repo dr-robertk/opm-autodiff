@@ -22,6 +22,7 @@ find_opm_package (
   "CXX11Features REQUIRED;
    dune-grid REQUIRED;
    ZLIB REQUIRED;
+   ZOLTAN;
    METIS
   "
   # header to search for
@@ -42,7 +43,10 @@ int main (void) {
 }
 "
   # config variables
-  "HAVE_DUNE_ALUGRID
+  "HAVE_DUNE_ALUGRID;
+   HAVE_METIS;
+   HAVE_ZLIB;
+   HAVE_ZOLTAN
   ")
 
 #debug_find_vars ("dune-grid")
