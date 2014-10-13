@@ -34,7 +34,6 @@
 #error This header needs the dune-alugrid module
 #endif
 
-
 namespace Opm
 {
     template <class GridImpl>     
@@ -66,8 +65,11 @@ namespace Opm
             Dune::FromToGridFactory< Grid > factory;
 
             // create Grid from CpGrid
-            Grid* grid = factory.convert( cpgrid );
+            std::vector< int > ordering;
+            Grid* grid = factory.convert( cpgrid, ordering );
             grid_.reset( grid );
+
+            //printCurve( *grid_ ); 
 
             assert( grid_->size( 0 ) == cpgrid.numCells() );
 
@@ -81,8 +83,13 @@ namespace Opm
             if( ! ug_->global_cell )
                 ug_->global_cell = (int *) std::malloc( ug_->number_of_cells * sizeof(int) );
             assert( int(cpgrid.globalCell().size()) == ug_->number_of_cells );
+
+            for( size_t i=0; i<cpgrid.globalCell().size(); ++i )
+            {
+                ug_->global_cell[ i ] = cpgrid.globalCell()[ ordering[ i ] ];
+            }
             // copy global cell information
-            std::copy( cpgrid.globalCell().begin(), cpgrid.globalCell().end(), ug_->global_cell );
+            // std::copy( cpgrid.globalCell().begin(), cpgrid.globalCell().end(), ug_->global_cell );
         }
 
         /// \brief destructor destroying the UnstructuredGrid
