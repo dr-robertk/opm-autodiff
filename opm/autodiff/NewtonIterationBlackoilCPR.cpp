@@ -170,9 +170,15 @@ namespace Opm
 
         // Create ISTL matrix.
         DuneMatrix istlA( A );
+        //std::ofstream file ("matrixpattern_new.gnu");
+        //istlA.printPattern( file );
 
         // Create ISTL matrix for elliptic part.
         DuneMatrix istlAe( A.topLeftCorner(nc, nc) );
+        //std::ofstream file1 ("matrixpattern_new1.gnu");
+        //istlAe.printPattern( file1 );
+
+        //std::abort();
 
         // Construct operator, scalar product and vectors needed.
         typedef Dune::MatrixAdapter<Mat,Vector,Vector> Operator;
