@@ -65,6 +65,21 @@ namespace Opm
             init( rows, cols, ia, ja, sa );
         }
 
+        void printPattern( std::ostream& out ) const
+        {
+            typedef Dune::BCRSMatrix< Dune::FieldMatrix<double, 1, 1> > Super;
+            typedef typename Super :: size_type size_type;
+            out << "# matrix A: rows = " << this->N() << "  cols = " << this->M() << std::endl;
+            for( auto row = this->begin(), endrow = this->end(); row != endrow; ++row )
+            {
+                const size_type rowIndex = row.index();
+                for( auto col = (*row).begin(), endcol = (*row).end(); col != endcol; ++col )
+                {
+                    out << rowIndex << " " << col.index() << std::endl;
+                }
+            }
+        }
+
     protected:
         void init(const int rows, const int cols, const int* ia, const int* ja, const double* sa)
         {
