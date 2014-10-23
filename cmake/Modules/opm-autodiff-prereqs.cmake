@@ -21,6 +21,7 @@ set (opm-autodiff_DEPS
 	dune-istl REQUIRED;
   dune-cornerpoint; 
 	dune-alugrid;
+	dune-fem;
 	opm-core REQUIRED"
 	# Eigen
 	"Eigen3 3.2.0 "

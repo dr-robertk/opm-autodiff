@@ -59,6 +59,7 @@ set (_opm_proj_exemptions
   dune-istl
   dune-grid
   dune-geometry
+  dune-fem
   opm-parser
   )
 

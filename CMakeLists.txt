@@ -50,6 +50,7 @@ macro (config_hook)
 	opm_need_version_of ("dune-istl")
 	opm_need_version_of ("dune-grid")
 	opm_need_version_of ("dune-alugrid")
+	opm_need_version_of ("dune-fem")
 endmacro (config_hook)
 
 macro (prereqs_hook)
