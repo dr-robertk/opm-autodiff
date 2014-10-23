@@ -18,6 +18,12 @@
 */
 #include "config.h"
 
+#if HAVE_MPI 
+#warning "Using MPI"
+#endif
+
+#include <opm/autodiff/DuneGrid.hpp>
+
 #include <opm/core/pressure/FlowBCManager.hpp>
 
 #include <opm/core/wells.h>
@@ -45,7 +51,6 @@
 
 #include <opm/autodiff/SimulatorFullyImplicitBlackoil.hpp>
 #include <opm/autodiff/BlackoilPropsAdFromDeck.hpp>
-#include <opm/autodiff/DuneGrid.hpp>
 
 #include <opm/parser/eclipse/Deck/Deck.hpp>
 #include <opm/parser/eclipse/Parser/Parser.hpp>

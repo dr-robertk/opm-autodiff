@@ -29,6 +29,8 @@
 #endif
 
 #if HAVE_DUNE_ALUGRID
+#include <dune/grid/common/datahandleif.hh>
+#include <dune/alugrid/grid.hh>
 #include <dune/alugrid/common/fromtogridfactory.hh>
 #else
 #error This header needs the dune-alugrid module
@@ -48,6 +50,63 @@ namespace Opm
         typedef typename Grid :: Traits :: template Codim< 0 > :: EntityPointer          ElementPointer;
         typedef typename Grid :: Traits :: template Codim< dimension > :: Entity         Vertex;
         typedef typename Grid :: Traits :: template Codim< dimension > :: EntityPointer  VertexPointer;
+
+        class GlobalCellIndex 
+        {
+            int idx_; 
+        public:    
+            GlobalCellIndex() : idx_(-1) {}
+            GlobalCellIndex& operator= ( const int index ) { idx_ = index; return *this; }
+            int index() const { return idx_; }
+        };
+
+        typedef typename Dune::PersistentContainer< Grid, GlobalCellIndex > GlobalIndexContainer;
+
+        class DataHandle : public Dune::CommDataHandleIF< DataHandle, int > 
+        {
+            GlobalIndexContainer& globalIndex_;
+        public:    
+            DataHandle( GlobalIndexContainer& globalIndex ) 
+                : globalIndex_( globalIndex )
+            {
+                globalIndex_.resize();
+            }
+                
+            bool contains ( int dim, int codim ) const { return codim == 0; }
+            bool fixedsize( int dim, int codim ) const { return true; }
+
+            //! \brief loop over all internal data handlers and call gather for
+            //! given entity 
+            template<class MessageBufferImp, class EntityType>
+            void gather (MessageBufferImp& buff, const EntityType& element ) const
+            {
+                int globalIdx = globalIndex_[ element ].index();
+                buff.write( globalIdx );
+            }
+
+            //! \brief loop over all internal data handlers and call scatter for
+            //! given entity 
+            template<class MessageBufferImp, class EntityType>
+            void scatter (MessageBufferImp& buff, const EntityType& element, size_t n)
+            {
+                std::cout << "Scatter globalIndex " << std::endl;
+                int globalIdx = -1;
+                buff.read( globalIdx );
+                if( globalIdx >= 0 ) 
+                {   
+                    globalIndex_.resize();
+                    globalIndex_[ element ] = globalIdx;
+                }
+            }
+
+            //! \brief loop over all internal data handlers and return sum of data
+            //! size of given entity 
+            template<class EntityType>
+            size_t size (const EntityType& en) const
+            {
+                return 1;
+            }
+        };
 
         typedef typename Element :: Geometry ElementGeometry ;
         typedef typename ElementGeometry :: GlobalCoordinate GlobalCoordinate;
@@ -69,25 +128,50 @@ namespace Opm
             Grid* grid = factory.convert( cpgrid, ordering );
             grid_.reset( grid );
 
+            int cartDims[ dimension ] = { 0 };
+            for( int d=0; d<dimension; ++d )
+                cartDims[ d ] = cpgrid.logicalCartesianSize()[ d ];
+
+            // compute cartesian dimensions 
+            grid_->comm().max( &cartDims[ 0 ], dimension );
+
+            globalIndex_.reset( new GlobalIndexContainer( *grid_, /* codim = */ 0 ) ); 
+            globalIndex_->resize();
+
+            //assert( grid_->comm().rank() == 0 ? (grid_->size( 0 ) == cpgrid.numCells()) : true );
+
+            // store global cartesian index of cell
+            typedef typename Grid :: LeafGridView GridView ;
+            typedef typename GridView :: template Codim< 0 > :: Iterator Iterator;
+            typedef typename GridView :: IndexSet                  IndexSet;
+            GridView gridView = grid_->leafGridView();
+            const IndexSet& indexSet = gridView.indexSet();
+            std::cout << "Local grid has " << indexSet.size( 0 ) << " cells" <<
+                std::endl;
+            const Iterator end = gridView.template end<0> ();
+            int count = 0;
+            for( Iterator it = gridView.template begin<0> (); it != end; ++it, ++count )
+            {
+                const Element& element = *it;
+                const int elIndex = indexSet.index( element );
+                assert( count == elIndex );
+                (*globalIndex_)[ element ] = cpgrid.globalCell()[ ordering[ elIndex ] ];
+            }
+
+            DataHandle dh( *globalIndex_ );
+
+            // partition grid
+            grid_->loadBalance( dh );
+            // communicate non-interior cells values
+            grid_->leafGridView().communicate( dh, Dune::InteriorBorder_All_Interface, Dune::ForwardCommunication );
+
             //printCurve( *grid_ ); 
 
-            assert( grid_->size( 0 ) == cpgrid.numCells() );
-
             // create an UnstructuredGrid
-            ug_.reset( dune2UnstructuredGrid( *grid_, true ) );
+            ug_.reset( dune2UnstructuredGrid( *grid_, cpgrid, *globalIndex_, cartDims, true ) );
 
-            for( int d=0; d<dimension; ++d )
-                ug_->cartdims[ d ] = cpgrid.logicalCartesianSize()[ d ];
-
-            assert( ug_->number_of_cells > 0 );
-            if( ! ug_->global_cell )
-                ug_->global_cell = (int *) std::malloc( ug_->number_of_cells * sizeof(int) );
-            assert( int(cpgrid.globalCell().size()) == ug_->number_of_cells );
-
-            for( size_t i=0; i<cpgrid.globalCell().size(); ++i )
-            {
-                ug_->global_cell[ i ] = cpgrid.globalCell()[ ordering[ i ] ];
-            }
+            std::cout << "Created DuneGrid " << std::endl;
+            std::cout << "P[ " << grid_->comm().rank() << " ] = " << ug_->number_of_cells << std::endl;
             // copy global cell information
             // std::copy( cpgrid.globalCell().begin(), cpgrid.globalCell().end(), ug_->global_cell );
         }
@@ -105,7 +189,11 @@ namespace Opm
         // return unstructured grid
         UnstructuredGrid& c_grid() { return *ug_; }
 
-        UnstructuredGrid* dune2UnstructuredGrid( Grid& grid, const bool faceTags )
+        UnstructuredGrid* 
+        dune2UnstructuredGrid( Grid& grid, Dune::CpGrid& cpgrid, 
+                               const GlobalIndexContainer& globalIndex,
+                               const int cartDims[ dimension ],
+                               const bool faceTags )
         {
             typedef typename Grid :: ctype ctype;
             typedef typename Grid :: LeafGridView GridView ;
@@ -131,6 +219,14 @@ namespace Opm
                     numCells * maxNumFacesPerCell,
                     numNodes );
 
+            for( int d=0; d<dimension; ++d )
+              ug->cartdims[ d ] = cartDims[ d ];
+
+            assert( ug->number_of_cells > 0 );
+            // allocate data structure for storage of cartesian index
+            if( ! ug->global_cell )
+                ug->global_cell = (int *) std::malloc( ug->number_of_cells * sizeof(int) );
+
             int count = 0;
             int cellFace = 0;
             const Iterator end = gridView.template end<0> ();
@@ -143,9 +239,13 @@ namespace Opm
                 // assert( element.type().isHexahedron() );
 
                 const int elIndex = indexSet.index( element );
+
                 // make sure that the elements are ordered as before,
                 // otherwise the globalCell mapping is invalid
                 assert( count == elIndex );
+
+                // store cartesian index
+                ug->global_cell[ elIndex ] = globalIndex[ element ].index();
 
                 const GlobalCoordinate center = geometry.center();
                 int idx = elIndex * dimension;
@@ -258,6 +358,7 @@ namespace Opm
 
     protected:
         std::unique_ptr< Grid > grid_;
+        std::unique_ptr< GlobalIndexContainer > globalIndex_;
         std::unique_ptr< UnstructuredGrid > ug_;
     };
 } // end namespace Opm
