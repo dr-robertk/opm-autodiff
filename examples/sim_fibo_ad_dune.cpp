@@ -94,7 +94,11 @@ int
 main(int argc, char** argv)
 try
 {
+#if HAVE_DUNE_FEM
+    Dune::Fem::MPIManager::initialize( argc, argv );
+#else
     Dune::MPIHelper::instance( argc, argv );
+#endif
 
     using namespace Opm;
 

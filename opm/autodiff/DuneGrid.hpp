@@ -36,6 +36,11 @@
 #error This header needs the dune-alugrid module
 #endif
 
+#if HAVE_DUNE_FEM 
+#include <dune/fem/gridpart/adaptiveleafgridpart.hh>
+#include <dune/fem/space/finitevolume.hh>
+#endif
+
 namespace Opm
 {
     template <class GridImpl>     
@@ -50,6 +55,8 @@ namespace Opm
         typedef typename Grid :: Traits :: template Codim< 0 > :: EntityPointer          ElementPointer;
         typedef typename Grid :: Traits :: template Codim< dimension > :: Entity         Vertex;
         typedef typename Grid :: Traits :: template Codim< dimension > :: EntityPointer  VertexPointer;
+
+        typedef Dune::Fem::AdaptiveLeafGridPart< Grid > GridPart;
 
         class GlobalCellIndex 
         {
@@ -141,16 +148,16 @@ namespace Opm
             //assert( grid_->comm().rank() == 0 ? (grid_->size( 0 ) == cpgrid.numCells()) : true );
 
             // store global cartesian index of cell
-            typedef typename Grid :: LeafGridView GridView ;
-            typedef typename GridView :: template Codim< 0 > :: Iterator Iterator;
-            typedef typename GridView :: IndexSet                  IndexSet;
-            GridView gridView = grid_->leafGridView();
-            const IndexSet& indexSet = gridView.indexSet();
+            typedef typename GridPart :: template Codim< 0 > :: IteratorType Iterator;
+            typedef typename GridPart :: IndexSetType                        IndexSet;
+            gridPart_.reset( new GridPart( *grid_ ) );
+
+            const IndexSet& indexSet = gridPart_->indexSet();
             std::cout << "Local grid has " << indexSet.size( 0 ) << " cells" <<
                 std::endl;
-            const Iterator end = gridView.template end<0> ();
+            const Iterator end = gridPart_->template end<0> ();
             int count = 0;
-            for( Iterator it = gridView.template begin<0> (); it != end; ++it, ++count )
+            for( Iterator it = gridPart_->template begin<0> (); it != end; ++it, ++count )
             {
                 const Element& element = *it;
                 const int elIndex = indexSet.index( element );
@@ -163,12 +170,12 @@ namespace Opm
             // partition grid
             grid_->loadBalance( dh );
             // communicate non-interior cells values
-            grid_->leafGridView().communicate( dh, Dune::InteriorBorder_All_Interface, Dune::ForwardCommunication );
+            gridPart_->communicate( dh, Dune::InteriorBorder_All_Interface, Dune::ForwardCommunication );
 
             //printCurve( *grid_ ); 
 
             // create an UnstructuredGrid
-            ug_.reset( dune2UnstructuredGrid( *grid_, cpgrid, *globalIndex_, cartDims, true ) );
+            ug_.reset( dune2UnstructuredGrid( *gridPart_, cpgrid, *globalIndex_, cartDims, true ) );
 
             std::cout << "Created DuneGrid " << std::endl;
             std::cout << "P[ " << grid_->comm().rank() << " ] = " << ug_->number_of_cells << std::endl;
@@ -190,21 +197,20 @@ namespace Opm
         UnstructuredGrid& c_grid() { return *ug_; }
 
         UnstructuredGrid* 
-        dune2UnstructuredGrid( Grid& grid, Dune::CpGrid& cpgrid, 
+        dune2UnstructuredGrid( GridPart& gridPart, 
+                               Dune::CpGrid& cpgrid, 
                                const GlobalIndexContainer& globalIndex,
                                const int cartDims[ dimension ],
                                const bool faceTags )
         {
             typedef typename Grid :: ctype ctype;
-            typedef typename Grid :: LeafGridView GridView ;
-            typedef typename GridView :: template Codim< 0 > :: Iterator Iterator;
-            typedef typename GridView :: IntersectionIterator      IntersectionIterator;
-            typedef typename IntersectionIterator :: Intersection  Intersection;
-            typedef typename Intersection :: Geometry              IntersectionGeometry;
-            typedef typename GridView :: IndexSet                  IndexSet;
+            typedef typename GridPart :: template Codim< 0 > :: IteratorType Iterator;
+            typedef typename GridPart :: IntersectionIteratorType      IntersectionIterator;
+            typedef typename IntersectionIterator :: Intersection      Intersection;
+            typedef typename Intersection :: Geometry                  IntersectionGeometry;
+            typedef typename GridPart :: IndexSetType                  IndexSet;
 
-            GridView gridView = grid.leafGridView();
-            const IndexSet& indexSet = gridView.indexSet();
+            const IndexSet& indexSet = gridPart.indexSet();
 
             const int numCells = indexSet.size( 0 );
             const int numFaces = indexSet.size( 1 );
@@ -229,8 +235,8 @@ namespace Opm
 
             int count = 0;
             int cellFace = 0;
-            const Iterator end = gridView.template end<0> ();
-            for( Iterator it = gridView.template begin<0> (); it != end; ++it, ++count )
+            const Iterator end = gridPart.template end<0> ();
+            for( Iterator it = gridPart.template begin<0> (); it != end; ++it, ++count )
             {
                 const Element& element = *it;
                 const ElementGeometry geometry = element.geometry();
@@ -268,8 +274,8 @@ namespace Opm
                         = Dune::ReferenceElements< ctype, dimension >::general( element.type() );
 
                 int faceCount = 0;
-                const IntersectionIterator endiit = gridView.iend( element );
-                for( IntersectionIterator iit = gridView.ibegin( element ); iit != endiit; ++iit, ++faceCount )
+                const IntersectionIterator endiit = gridPart.iend( element );
+                for( IntersectionIterator iit = gridPart.ibegin( element ); iit != endiit; ++iit, ++faceCount )
                 {
                     const Intersection& intersection = *iit;
                     IntersectionGeometry intersectionGeometry = intersection.geometry();
@@ -359,6 +365,7 @@ namespace Opm
     protected:
         std::unique_ptr< Grid > grid_;
         std::unique_ptr< GlobalIndexContainer > globalIndex_;
+        std::unique_ptr< GridPart > gridPart_;
         std::unique_ptr< UnstructuredGrid > ug_;
     };
 } // end namespace Opm
