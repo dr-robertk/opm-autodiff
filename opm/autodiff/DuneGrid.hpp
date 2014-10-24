@@ -150,7 +150,6 @@ namespace Opm
 
             // store global cartesian index of cell
             typedef typename GridPart :: template Codim< 0 > :: IteratorType Iterator;
-            typedef typename GridPart :: IndexSetType                        IndexSet;
             const Iterator end = gridPart_->template end<0> ();
             int count = 0;
             for( Iterator it = gridPart_->template begin<0> (); it != end; ++it, ++count )
@@ -256,8 +255,8 @@ namespace Opm
 
                 // store cartesian index
                 ug->global_cell[ elIndex ] = globalIndex[ element ].index();
-                std::cout << "global index of cell " << elIndex << " = " <<
-                    ug->global_cell[ elIndex ] << std::endl;
+                //std::cout << "global index of cell " << elIndex << " = " <<
+                //    ug->global_cell[ elIndex ] << std::endl;
 
                 const GlobalCoordinate center = geometry.center();
                 int idx = elIndex * dimension;
