@@ -145,24 +145,18 @@ namespace Opm
             globalIndex_.reset( new GlobalIndexContainer( *grid_, /* codim = */ 0 ) ); 
             globalIndex_->resize();
 
+            gridPart_.reset( new GridPart( *grid_ ) );
             //assert( grid_->comm().rank() == 0 ? (grid_->size( 0 ) == cpgrid.numCells()) : true );
 
             // store global cartesian index of cell
             typedef typename GridPart :: template Codim< 0 > :: IteratorType Iterator;
             typedef typename GridPart :: IndexSetType                        IndexSet;
-            gridPart_.reset( new GridPart( *grid_ ) );
-
-            const IndexSet& indexSet = gridPart_->indexSet();
-            std::cout << "Local grid has " << indexSet.size( 0 ) << " cells" <<
-                std::endl;
             const Iterator end = gridPart_->template end<0> ();
             int count = 0;
             for( Iterator it = gridPart_->template begin<0> (); it != end; ++it, ++count )
             {
                 const Element& element = *it;
-                const int elIndex = indexSet.index( element );
-                assert( count == elIndex );
-                (*globalIndex_)[ element ] = cpgrid.globalCell()[ ordering[ elIndex ] ];
+                (*globalIndex_)[ element ] = cpgrid.globalCell()[ ordering[ count ] ];
             }
 
             DataHandle dh( *globalIndex_ );
@@ -172,12 +166,18 @@ namespace Opm
             // communicate non-interior cells values
             gridPart_->communicate( dh, Dune::InteriorBorder_All_Interface, Dune::ForwardCommunication );
 
+            delete gridPart_.release();
+            gridPart_.reset( new GridPart( *grid_ ) );
+
             //printCurve( *grid_ ); 
 
-            // create an UnstructuredGrid
-            ug_.reset( dune2UnstructuredGrid( *gridPart_, cpgrid, *globalIndex_, cartDims, true ) );
-
             std::cout << "Created DuneGrid " << std::endl;
+            std::cout << "P[ " << grid_->comm().rank() << " ] = " << grid_->size( 0 ) << std::endl;
+
+            // create an UnstructuredGrid
+            ug_.reset( dune2UnstructuredGrid( gridPart_->gridView(), cpgrid, *globalIndex_, cartDims, true ) );
+
+            std::cout << "Created UG " << std::endl;
             std::cout << "P[ " << grid_->comm().rank() << " ] = " << ug_->number_of_cells << std::endl;
             // copy global cell information
             // std::copy( cpgrid.globalCell().begin(), cpgrid.globalCell().end(), ug_->global_cell );
@@ -196,21 +196,23 @@ namespace Opm
         // return unstructured grid
         UnstructuredGrid& c_grid() { return *ug_; }
 
+        template <class GridView>
         UnstructuredGrid* 
-        dune2UnstructuredGrid( GridPart& gridPart, 
+        dune2UnstructuredGrid( const GridView& gridView, 
                                Dune::CpGrid& cpgrid, 
                                const GlobalIndexContainer& globalIndex,
                                const int cartDims[ dimension ],
                                const bool faceTags )
         {
             typedef typename Grid :: ctype ctype;
-            typedef typename GridPart :: template Codim< 0 > :: IteratorType Iterator;
-            typedef typename GridPart :: IntersectionIteratorType      IntersectionIterator;
-            typedef typename IntersectionIterator :: Intersection      Intersection;
-            typedef typename Intersection :: Geometry                  IntersectionGeometry;
-            typedef typename GridPart :: IndexSetType                  IndexSet;
+            typedef typename GridView :: template Codim< 0 > :: template Partition<
+                Dune :: All_Partition > :: Iterator Iterator;
+            typedef typename GridView :: IntersectionIterator            IntersectionIterator;
+            typedef typename IntersectionIterator :: Intersection        Intersection;
+            typedef typename Intersection :: Geometry                    IntersectionGeometry;
+            typedef typename GridPart :: IndexSetType                    IndexSet;
 
-            const IndexSet& indexSet = gridPart.indexSet();
+            const IndexSet& indexSet = gridView.indexSet();
 
             const int numCells = indexSet.size( 0 );
             const int numFaces = indexSet.size( 1 );
@@ -225,6 +227,8 @@ namespace Opm
                     numCells * maxNumFacesPerCell,
                     numNodes );
 
+            std::fill( ug->face_cells, ug->face_cells+(numCells * maxNumFacesPerCell), -1 );
+
             for( int d=0; d<dimension; ++d )
               ug->cartdims[ d ] = cartDims[ d ];
 
@@ -235,8 +239,8 @@ namespace Opm
 
             int count = 0;
             int cellFace = 0;
-            const Iterator end = gridPart.template end<0> ();
-            for( Iterator it = gridPart.template begin<0> (); it != end; ++it, ++count )
+            const Iterator end = gridView.template end<0, Dune::All_Partition> ();
+            for( Iterator it = gridView.template begin<0, Dune::All_Partition> (); it != end; ++it, ++count )
             {
                 const Element& element = *it;
                 const ElementGeometry geometry = element.geometry();
@@ -252,6 +256,8 @@ namespace Opm
 
                 // store cartesian index
                 ug->global_cell[ elIndex ] = globalIndex[ element ].index();
+                std::cout << "global index of cell " << elIndex << " = " <<
+                    ug->global_cell[ elIndex ] << std::endl;
 
                 const GlobalCoordinate center = geometry.center();
                 int idx = elIndex * dimension;
@@ -274,8 +280,8 @@ namespace Opm
                         = Dune::ReferenceElements< ctype, dimension >::general( element.type() );
 
                 int faceCount = 0;
-                const IntersectionIterator endiit = gridPart.iend( element );
-                for( IntersectionIterator iit = gridPart.ibegin( element ); iit != endiit; ++iit, ++faceCount )
+                const IntersectionIterator endiit = gridView.iend( element );
+                for( IntersectionIterator iit = gridView.ibegin( element ); iit != endiit; ++iit, ++faceCount )
                 {
                     const Intersection& intersection = *iit;
                     IntersectionGeometry intersectionGeometry = intersection.geometry();
