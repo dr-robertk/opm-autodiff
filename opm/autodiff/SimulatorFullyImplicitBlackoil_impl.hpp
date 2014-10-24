@@ -379,6 +379,8 @@ namespace Opm
                 solver.step(timer.currentStepLength(), state, well_state);
             }
 
+            grid_.communicate( state );
+
             // take time that was used to solve system for this reportStep
             solver_timer.stop();
 

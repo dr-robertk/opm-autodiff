@@ -20,6 +20,7 @@
 #define OPM_DUNEGRID_HEADER_INCLUDED
 
 #include <opm/core/grid.h>
+#include <opm/core/simulator/SimulatorState.hpp>
 
 // we need dune-cornerpoint for reading the Dune grid.
 #if HAVE_DUNE_CORNERPOINT
@@ -40,6 +41,7 @@
 #if HAVE_DUNE_FEM 
 #include <dune/fem/gridpart/adaptiveleafgridpart.hh>
 #include <dune/fem/space/finitevolume.hh>
+#include <dune/fem/function/adaptivefunction.hh>
 #endif
 
 namespace Opm
@@ -60,8 +62,12 @@ namespace Opm
         typedef Dune::Fem::AdaptiveLeafGridPart< Grid > GridPart;
         typedef typename GridPart :: GridViewType GridView;
 
-        typedef typename Element :: Geometry ElementGeometry ;
-        typedef typename ElementGeometry :: GlobalCoordinate GlobalCoordinate;
+        typedef Dune::Fem::FunctionSpace< double, double, dimension, 1 >    FunctionSpace; 
+        typedef Dune::Fem::FiniteVolumeSpace< FunctionSpace, GridPart, 0 >  FiniteVolumeSpace; 
+        typedef Dune::Fem::AdaptiveDiscreteFunction< FiniteVolumeSpace >    DiscreteFunction;
+
+        typedef typename Element :: Geometry                    ElementGeometry ;
+        typedef typename ElementGeometry :: GlobalCoordinate    GlobalCoordinate;
 
         class GlobalCellIndex 
         {
@@ -170,7 +176,7 @@ namespace Opm
         DuneGrid(Opm::DeckConstPtr deck, const std::vector<double>& porv )
             : grid_( createDuneGrid( deck, porv ) ),
               gridPart_( grid() ),
-              //space_( gridPart_ )
+              space_( gridPart_ ),
               ug_( dune2UnstructuredGrid( gridPart_.gridView(), globalIndex(), cartDims_, true ) )
         {
             //printCurve( *grid_ ); 
@@ -196,14 +202,29 @@ namespace Opm
 
         const GlobalIndexContainer globalIndex() const { return *globalIndex_; }
 
+        // cast operators for UnstructuredGrid
         operator const UnstructuredGrid& () const { return *ug_; }
         operator UnstructuredGrid& () { return *ug_; }
+
         // return unstructured grid
         UnstructuredGrid & c_grid() { return *ug_; }
         const UnstructuredGrid& c_grid() const { return *ug_; }
 
         GridView gridView () const { 
             return gridPart_.gridView(); 
+        }
+
+        void communicate( SimulatorState& state ) const 
+        {
+            if( space_.size() != state.pressure().size()  ) 
+                std::cout << space_.size() << " " << state.pressure().size() << std::endl;
+            assert( space_.size() == state.pressure().size() );
+            DiscreteFunction p( "pressure", space_, &state.pressure()[0] );
+            p.communicate();
+            DiscreteFunction sat( "sat", space_, &state.saturation()[0] );
+            sat.communicate();
+            DiscreteFunction sat2( "sat2", space_, &state.saturation()[ space_.size() ] );
+            sat2.communicate();
         }
 
         template <class GridView>
@@ -386,6 +407,7 @@ namespace Opm
         std::unique_ptr< GlobalIndexContainer > globalIndex_;
         std::unique_ptr< Grid > grid_;
         GridPart gridPart_;
+        FiniteVolumeSpace space_;
         std::unique_ptr< UnstructuredGrid > ug_;
         int cartDims_[ dimension ];
     };
