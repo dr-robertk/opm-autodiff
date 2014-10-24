@@ -96,7 +96,6 @@ namespace Opm
             template<class MessageBufferImp, class EntityType>
             void scatter (MessageBufferImp& buff, const EntityType& element, size_t n)
             {
-                std::cout << "Scatter globalIndex " << std::endl;
                 int globalIdx = -1;
                 buff.read( globalIdx );
                 if( globalIdx >= 0 ) 
@@ -238,6 +237,7 @@ namespace Opm
 
             int count = 0;
             int cellFace = 0;
+            int maxFaceIdx = 0;
             const Iterator end = gridView.template end<0, Dune::All_Partition> ();
             for( Iterator it = gridView.template begin<0, Dune::All_Partition> (); it != end; ++it, ++count )
             {
@@ -248,6 +248,8 @@ namespace Opm
                 // assert( element.type().isHexahedron() );
 
                 const int elIndex = indexSet.index( element );
+
+                const bool isGhost = element.partitionType() != Dune :: InteriorEntity ;
 
                 // make sure that the elements are ordered as before,
                 // otherwise the globalCell mapping is invalid
@@ -287,7 +289,9 @@ namespace Opm
                     const double faceVol = intersectionGeometry.volume();
 
                     const int localFace = intersection.indexInInside();
+                    const int localFaceIdx = isGhost ? 0 : localFace;
                     const int faceIndex = indexSet.subIndex( element, localFace, 1 );
+                    maxFaceIdx = std::max( faceIndex, maxFaceIdx );
 
                     ug->face_areas[ faceIndex ] = faceVol;
 
@@ -307,11 +311,11 @@ namespace Opm
                     assert( localFace <  maxNumFacesPerCell );
 
                     // store cell --> face relation
-                    ug->cell_faces  [ cellFace + localFace ] = faceIndex;
+                    ug->cell_faces  [ cellFace + localFaceIdx ] = faceIndex;
                     if( faceTags )
                     {
                         // fill logical cartesian orientation of the face (here indexInInside)
-                        ug->cell_facetag[ cellFace + localFace ] = localFace;
+                        ug->cell_facetag[ cellFace + localFaceIdx ] = localFaceIdx;
                     }
 
                     GlobalCoordinate normal = intersection.centerUnitOuterNormal();
@@ -322,6 +326,7 @@ namespace Opm
                     {
                         ElementPointer ep = intersection.outside();
                         const Element& neighbor = *ep;
+
                         const int nbIndex = indexSet.index( neighbor );
                         if( elIndex < nbIndex )
                         {
@@ -336,7 +341,7 @@ namespace Opm
                             normal *= -1.0;
                         }
                     }
-                    else
+                    else // domain boundary
                     {
                         ug->face_cells[ 2*faceIndex     ] = elIndex;
                         ug->face_cells[ 2*faceIndex + 1 ] = -1; // boundary
@@ -355,14 +360,13 @@ namespace Opm
                     OPM_THROW(std::logic_error,"DuneGrid only supports conforming hexahedral currently");
                 cellFace += faceCount;
             }
+
             // set last entry
             ug->cell_facepos[ numCells ] = cellFace;
+            // set number of faces found
+            ug->number_of_faces = maxFaceIdx+1;
 
-            if( cellFace < numFaces * maxNumFacesPerCell )
-            {
-                // reallocate data
-                // ug->cell_faces
-            }
+            std::cout << cellFace << " " << indexSet.size( 1 ) << " " << maxFaceIdx << std::endl;
 
             return ug;
         }
