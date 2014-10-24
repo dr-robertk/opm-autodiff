@@ -143,7 +143,8 @@ try
 
     // create a grid (powered by DUNE::Grid)
     typedef Dune :: ALUGrid< 3, 3, Dune::cube, Dune::nonconforming > GridImpl;
-    Opm::DuneGrid< GridImpl > grid( deck, porv );
+    typedef Opm::DuneGrid< GridImpl > Grid;
+    Grid grid( deck, porv );
 
     //grid.reset(new GridManager(eclipseState->getEclipseGrid(), porv));
     auto &cGrid = grid.c_grid();
@@ -229,8 +230,8 @@ try
 
     std::vector<double> threshold_pressures = thresholdPressures(deck, eclipseState, grid.c_grid());
 
-    SimulatorFullyImplicitBlackoil<UnstructuredGrid> simulator(param,
-                                             grid.c_grid(),
+    SimulatorFullyImplicitBlackoil<Grid> simulator(param,
+                                             grid,
                                              geology,
                                              *new_props,
                                              rock_comp->isActive() ? rock_comp.get() : 0,

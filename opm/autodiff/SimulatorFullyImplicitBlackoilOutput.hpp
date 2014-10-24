@@ -16,6 +16,8 @@
 
 #include <boost/filesystem.hpp>
 
+#include <opm/autodiff/DuneGrid.hpp>
+
 #ifdef HAVE_DUNE_CORNERPOINT
 #include <dune/grid/CpGrid.hpp>
 #endif
@@ -88,6 +90,43 @@ namespace Opm
             std::copy(d.begin(), d.end(), std::ostream_iterator<double>(file, "\n"));
         }
     }
+
+    template <class DuneGrid>
+    void outputStateVtk(const DuneGrid& grid,
+                        const Opm::BlackoilState& state,
+                        const int step,
+                        const std::string& output_dir)
+    {
+        // Write data in VTK format.
+        std::ostringstream vtkfilename;
+        std::ostringstream vtkpath;
+        vtkpath << output_dir << "/vtk_files";
+        vtkpath << "/output-" << std::setw(3) << std::setfill('0') << step;
+        boost::filesystem::path fpath(vtkpath.str());
+        try {
+            create_directories(fpath);
+        }
+        catch (...) {
+            OPM_THROW(std::runtime_error, "Creating directories failed: " << fpath);
+        }
+        vtkfilename << "output-" << std::setw(3) << std::setfill('0') << step;
+
+        typedef typename DuneGrid :: GridView GridView;
+        GridView gridView = grid.gridView();
+
+        Dune::VTKWriter< GridView > writer(gridView, Dune::VTK::nonconforming);
+        writer.addCellData(state.saturation(), "saturation", state.numPhases());
+        writer.addCellData(state.pressure(), "pressure", 1);
+        
+        std::vector<double> cell_velocity;
+        Opm::estimateCellVelocity(grid.c_grid(),
+                                  state.faceflux(), cell_velocity);
+        writer.addCellData(cell_velocity, "velocity", DuneGrid::dimension);
+        std::vector<double> rank( state.pressure().size(), gridView.comm().rank() );
+        writer.addCellData( rank, "rank", 1 );
+        writer.pwrite(vtkfilename.str(), vtkpath.str(), std::string("."), Dune::VTK::ascii);
+    }
+
 
 
 }

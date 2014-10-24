@@ -32,6 +32,7 @@
 #include <dune/grid/common/datahandleif.hh>
 #include <dune/alugrid/grid.hh>
 #include <dune/alugrid/common/fromtogridfactory.hh>
+#include <dune/grid/io/file/vtk/vtkwriter.hh>
 #else
 #error This header needs the dune-alugrid module
 #endif
@@ -57,6 +58,7 @@ namespace Opm
         typedef typename Grid :: Traits :: template Codim< dimension > :: EntityPointer  VertexPointer;
 
         typedef Dune::Fem::AdaptiveLeafGridPart< Grid > GridPart;
+        typedef typename GridPart :: GridViewType GridView;
 
         class GlobalCellIndex 
         {
@@ -193,6 +195,11 @@ namespace Opm
 
         // return unstructured grid
         UnstructuredGrid& c_grid() { return *ug_; }
+        const UnstructuredGrid& c_grid() const { return *ug_; }
+
+        GridView gridView () const { 
+            assert( gridPart_ );
+            return gridPart_->gridView(); }
 
         template <class GridView>
         UnstructuredGrid* 
