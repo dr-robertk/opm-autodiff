@@ -35,6 +35,8 @@
 #include <dune/grid/CpGrid.hpp>
 #endif
 
+#include <opm/autodiff/DuneGrid.hpp>
+
 #include <opm/core/utility/platform_dependent/reenable_warnings.h>
 
 
@@ -517,6 +519,13 @@ template<>
 struct ADFaceCellTraits<UnstructuredGrid>
 {
     typedef Eigen::Array<int, Eigen::Dynamic, 2, Eigen::RowMajor> Type;
+};
+
+// derive from ADFaceCellTraits< UnstructuredGrid > since 
+// DuneGrid casts into UnstructuredGrid
+template<class G>
+struct ADFaceCellTraits<DuneGrid< G > > : public ADFaceCellTraits< UnstructuredGrid >
+{
 };
 
 /// \brief Get the face to cell mapping of a grid.

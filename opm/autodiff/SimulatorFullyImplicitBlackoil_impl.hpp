@@ -250,7 +250,7 @@ namespace Opm
           has_vapoil_(has_vapoil),
           eclipse_state_(eclipse_state),
           output_writer_(output_writer),
-          rateConverter_(props_, std::vector<int>(AutoDiffGrid::numCells(grid_.c_grid()), 0)),
+          rateConverter_(props_, std::vector<int>(AutoDiffGrid::numCells(grid_), 0)),
           threshold_pressures_by_face_(threshold_pressures_by_face)
     {
         // For output.
@@ -270,7 +270,7 @@ namespace Opm
         }
 
         // Misc init.
-        const int num_cells = AutoDiffGrid::numCells(grid_.c_grid());
+        const int num_cells = AutoDiffGrid::numCells(grid_);
         allcells_.resize(num_cells);
         for (int cell = 0; cell < num_cells; ++cell) {
             allcells_[cell] = cell;
@@ -295,9 +295,7 @@ namespace Opm
         std::string tstep_filename = output_dir_ + "/step_timing.txt";
         std::ofstream tstep_os(tstep_filename.c_str());
 
-        const UnstructuredGrid& grid = grid_.c_grid();
-
-        typename FullyImplicitBlackoilSolver<UnstructuredGrid>::SolverParameter solverParam( param_ );
+        typename FullyImplicitBlackoilSolver<T>::SolverParameter solverParam( param_ );
 
         // adaptive time stepping
         std::unique_ptr< AdaptiveTimeStepping > adaptiveTimeStepping;
@@ -319,13 +317,13 @@ namespace Opm
             // Create wells and well state.
             WellsManager wells_manager(eclipse_state_,
                                        timer.currentStepNum(),
-                                       Opm::UgGridHelpers::numCells(grid),
-                                       Opm::UgGridHelpers::globalCell(grid),
-                                       Opm::UgGridHelpers::cartDims(grid),
-                                       Opm::UgGridHelpers::dimensions(grid),
-                                       Opm::UgGridHelpers::beginCellCentroids(grid),
-                                       Opm::UgGridHelpers::cell2Faces(grid),
-                                       Opm::UgGridHelpers::beginFaceCentroids(grid),
+                                       Opm::UgGridHelpers::numCells(grid_),
+                                       Opm::UgGridHelpers::globalCell(grid_),
+                                       Opm::UgGridHelpers::cartDims(grid_),
+                                       Opm::UgGridHelpers::dimensions(grid_),
+                                       Opm::UgGridHelpers::beginCellCentroids(grid_),
+                                       Opm::UgGridHelpers::cell2Faces(grid_),
+                                       Opm::UgGridHelpers::beginFaceCentroids(grid_),
                                        props_.permeability());
             const Wells* wells = wells_manager.c_wells();
             WellStateFullyImplicitBlackoil well_state;
@@ -362,7 +360,7 @@ namespace Opm
             // Run a multiple steps of the solver depending on the time step control.
             solver_timer.start();
 
-            FullyImplicitBlackoilSolver<UnstructuredGrid> solver(solverParam, grid, props_, geo_, rock_comp_props_, *wells, solver_, has_disgas_, has_vapoil_);
+            FullyImplicitBlackoilSolver<T> solver(solverParam, grid_, props_, geo_, rock_comp_props_, *wells, solver_, has_disgas_, has_vapoil_);
             if (!threshold_pressures_by_face_.empty()) {
                 solver.setThresholdPressures(threshold_pressures_by_face_);
             }
@@ -403,9 +401,9 @@ namespace Opm
         // Write final simulation state.
         if (output_) {
             if (output_vtk_) {
-                outputStateVtk(grid, state, timer.currentStepNum(), output_dir_);
+                outputStateVtk(grid_, state, timer.currentStepNum(), output_dir_);
             }
-            outputStateMatlab(grid, state, timer.currentStepNum(), output_dir_);
+            outputStateMatlab(grid_, state, timer.currentStepNum(), output_dir_);
             outputWellStateMatlab(prev_well_state, timer.currentStepNum(), output_dir_);
             output_writer_.writeTimeStep(timer, state, prev_well_state.basicWellState());
         }

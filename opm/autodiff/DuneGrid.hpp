@@ -60,6 +60,9 @@ namespace Opm
         typedef Dune::Fem::AdaptiveLeafGridPart< Grid > GridPart;
         typedef typename GridPart :: GridViewType GridView;
 
+        typedef typename Element :: Geometry ElementGeometry ;
+        typedef typename ElementGeometry :: GlobalCoordinate GlobalCoordinate;
+
         class GlobalCellIndex 
         {
             int idx_; 
@@ -116,10 +119,7 @@ namespace Opm
             }
         };
 
-        typedef typename Element :: Geometry ElementGeometry ;
-        typedef typename ElementGeometry :: GlobalCoordinate GlobalCoordinate;
-
-        DuneGrid(Opm::DeckConstPtr deck, const std::vector<double>& porv )
+        Grid* createDuneGrid( Opm::DeckConstPtr deck, const std::vector<double>& porv )
         {
             if( porv.size() > 0 )
                 OPM_THROW(std::runtime_error,"PORV not yet supported by DuneGrid");
@@ -133,78 +133,82 @@ namespace Opm
 
             // create Grid from CpGrid
             std::vector< int > ordering;
-            Grid* grid = factory.convert( cpgrid, ordering );
-            grid_.reset( grid );
+            Grid& grid = *( factory.convert( cpgrid, ordering ) );
 
-            int cartDims[ dimension ] = { 0 };
             for( int d=0; d<dimension; ++d )
-                cartDims[ d ] = cpgrid.logicalCartesianSize()[ d ];
+                cartDims_[ d ] = cpgrid.logicalCartesianSize()[ d ];
 
             // compute cartesian dimensions 
-            grid_->comm().max( &cartDims[ 0 ], dimension );
+            grid.comm().max( &cartDims_[ 0 ], dimension );
 
-            globalIndex_.reset( new GlobalIndexContainer( *grid_, /* codim = */ 0 ) ); 
+            globalIndex_.reset( new GlobalIndexContainer( grid, /* codim = */ 0 ) ); 
             globalIndex_->resize();
 
-            gridPart_.reset( new GridPart( *grid_ ) );
-            //assert( grid_->comm().rank() == 0 ? (grid_->size( 0 ) == cpgrid.numCells()) : true );
+            GridPart gridPart( grid );
 
             // store global cartesian index of cell
             typedef typename GridPart :: template Codim< 0 > :: IteratorType Iterator;
-            const Iterator end = gridPart_->template end<0> ();
+            const Iterator end = gridPart.template end<0> ();
             int count = 0;
-            for( Iterator it = gridPart_->template begin<0> (); it != end; ++it, ++count )
+            for( Iterator it = gridPart.template begin<0> (); it != end; ++it, ++count )
             {
                 const Element& element = *it;
                 (*globalIndex_)[ element ] = cpgrid.globalCell()[ ordering[ count ] ];
             }
 
+            // create data handle to distribute the global cartesian index
             DataHandle dh( *globalIndex_ );
 
             // partition grid
-            grid_->loadBalance( dh );
+            grid.loadBalance( dh );
             // communicate non-interior cells values
-            gridPart_->communicate( dh, Dune::InteriorBorder_All_Interface, Dune::ForwardCommunication );
+            gridPart.communicate( dh, Dune::InteriorBorder_All_Interface, Dune::ForwardCommunication );
+            // return grid pointer
+            return &grid;
+        }
 
-            delete gridPart_.release();
-            gridPart_.reset( new GridPart( *grid_ ) );
-
+        DuneGrid(Opm::DeckConstPtr deck, const std::vector<double>& porv )
+            : grid_( createDuneGrid( deck, porv ) ),
+              gridPart_( grid() ),
+              //space_( gridPart_ )
+              ug_( dune2UnstructuredGrid( gridPart_.gridView(), globalIndex(), cartDims_, true ) )
+        {
             //printCurve( *grid_ ); 
 
             std::cout << "Created DuneGrid " << std::endl;
-            std::cout << "P[ " << grid_->comm().rank() << " ] = " << grid_->size( 0 ) << std::endl;
-
-            // create an UnstructuredGrid
-            ug_.reset( dune2UnstructuredGrid( gridPart_->gridView(), cpgrid, *globalIndex_, cartDims, true ) );
+            std::cout << "P[ " << grid().comm().rank() << " ] = " << grid().size( 0 ) << std::endl;
 
             std::cout << "Created UG " << std::endl;
             std::cout << "P[ " << grid_->comm().rank() << " ] = " << ug_->number_of_cells << std::endl;
-            // copy global cell information
-            // std::copy( cpgrid.globalCell().begin(), cpgrid.globalCell().end(), ug_->global_cell );
         }
 
         /// \brief destructor destroying the UnstructuredGrid
         ~DuneGrid()
         {
+            // delete this structure manually
             UnstructuredGrid* ug = ug_.release();
             destroy_grid( ug );
         }
 
         // return Dune::Grid
         Grid& grid() { return *grid_; }
+        const Grid& grid() const { return *grid_; }
 
+        const GlobalIndexContainer globalIndex() const { return *globalIndex_; }
+
+        operator const UnstructuredGrid& () const { return *ug_; }
+        operator UnstructuredGrid& () { return *ug_; }
         // return unstructured grid
-        UnstructuredGrid& c_grid() { return *ug_; }
+        UnstructuredGrid & c_grid() { return *ug_; }
         const UnstructuredGrid& c_grid() const { return *ug_; }
 
         GridView gridView () const { 
-            assert( gridPart_ );
-            return gridPart_->gridView(); }
+            return gridPart_.gridView(); 
+        }
 
         template <class GridView>
         UnstructuredGrid* 
         dune2UnstructuredGrid( const GridView& gridView, 
-                               Dune::CpGrid& cpgrid, 
                                const GlobalIndexContainer& globalIndex,
                                const int cartDims[ dimension ],
                                const bool faceTags )
@@ -235,7 +239,7 @@ namespace Opm
             std::fill( ug->face_cells, ug->face_cells+(numCells * maxNumFacesPerCell), -1 );
 
             for( int d=0; d<dimension; ++d )
-              ug->cartdims[ d ] = cartDims[ d ];
+              ug->cartdims[ d ] = cartDims_[ d ];
 
             assert( ug->number_of_cells > 0 );
             // allocate data structure for storage of cartesian index
@@ -379,10 +383,11 @@ namespace Opm
         }
 
     protected:
-        std::unique_ptr< Grid > grid_;
         std::unique_ptr< GlobalIndexContainer > globalIndex_;
-        std::unique_ptr< GridPart > gridPart_;
+        std::unique_ptr< Grid > grid_;
+        GridPart gridPart_;
         std::unique_ptr< UnstructuredGrid > ug_;
+        int cartDims_[ dimension ];
     };
 } // end namespace Opm
 #endif
