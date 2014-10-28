@@ -304,10 +304,6 @@ namespace Opm
             adaptiveTimeStepping = std::unique_ptr< AdaptiveTimeStepping > (new AdaptiveTimeStepping( param_ ));
         }
 
-        // create time step control object, TODO introduce parameter
-        std::unique_ptr< TimeStepControlInterface >
-            timeStepControl( new PIDAndIterationCountTimeStepControl( 50, 8e-4 ) );
-
         // Main simulation loop.
         while (!timer.done()) {
             // Report timestep.
@@ -328,6 +324,7 @@ namespace Opm
             const Wells* wells = wells_manager.c_wells();
             WellStateFullyImplicitBlackoil well_state;
             well_state.init(wells, state);
+
             if (timer.currentStepNum() != 0) {
                 // Transfer previous well state to current.
                 well_state.partialCopy(prev_well_state, *wells, prev_well_state.numWells());
@@ -379,6 +376,7 @@ namespace Opm
                 solver.step(timer.currentStepLength(), state, well_state);
             }
 
+            // communicate state
             grid_.communicate( state );
 
             // take time that was used to solve system for this reportStep

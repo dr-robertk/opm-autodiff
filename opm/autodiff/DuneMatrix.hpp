@@ -65,7 +65,7 @@ namespace Opm
             init( rows, cols, ia, ja, sa );
         }
 
-        void printPattern( std::ostream& out ) const
+        void printPattern( std::ostream& out, const double tol = std::numeric_limit<double>::min() ) const
         {
             typedef Dune::BCRSMatrix< Dune::FieldMatrix<double, 1, 1> > Super;
             typedef typename Super :: size_type size_type;
@@ -75,7 +75,8 @@ namespace Opm
                 const size_type rowIndex = row.index();
                 for( auto col = (*row).begin(), endcol = (*row).end(); col != endcol; ++col )
                 {
-                    out << rowIndex << " " << col.index() << std::endl;
+                    if( std::abs(*col) > tol ) 
+                        out << rowIndex << " " << col.index() << std::endl;
                 }
             }
         }

@@ -227,6 +227,11 @@ namespace Opm
             sat2.communicate();
         }
 
+        void gather( const SimulatorState& localState )
+        {
+            // gather solution to rank 0 for EclipseWriter
+        }
+
         template <class GridView>
         UnstructuredGrid* 
         dune2UnstructuredGrid( const GridView& gridView, 
@@ -237,10 +242,10 @@ namespace Opm
             typedef typename Grid :: ctype ctype;
             typedef typename GridView :: template Codim< 0 > :: template Partition<
                 Dune :: All_Partition > :: Iterator Iterator;
-            typedef typename GridView :: IntersectionIterator            IntersectionIterator;
-            typedef typename IntersectionIterator :: Intersection        Intersection;
-            typedef typename Intersection :: Geometry                    IntersectionGeometry;
-            typedef typename GridPart :: IndexSetType                    IndexSet;
+            typedef typename GridView :: IntersectionIterator      IntersectionIterator;
+            typedef typename IntersectionIterator :: Intersection  Intersection;
+            typedef typename Intersection :: Geometry              IntersectionGeometry;
+            typedef typename GridView :: IndexSet                  IndexSet;
 
             const IndexSet& indexSet = gridView.indexSet();
 
