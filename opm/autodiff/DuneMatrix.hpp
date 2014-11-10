@@ -25,6 +25,8 @@
 #error This header must be included before any bcrsmatrix.hh is included (directly or indirectly)
 #endif
 
+#include <limits>
+
 #include <opm/core/utility/platform_dependent/disable_warnings.h>
 
 #include <Eigen/Eigen>
@@ -65,7 +67,7 @@ namespace Opm
             init( rows, cols, ia, ja, sa );
         }
 
-        void printPattern( std::ostream& out, const double tol = std::numeric_limit<double>::min() ) const
+        void printPattern( std::ostream& out, const double tol = std::numeric_limits<double>::min() ) const
         {
             typedef Dune::BCRSMatrix< Dune::FieldMatrix<double, 1, 1> > Super;
             typedef typename Super :: size_type size_type;
