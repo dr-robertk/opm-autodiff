@@ -301,7 +301,7 @@ namespace Opm
         std::unique_ptr< AdaptiveTimeStepping > adaptiveTimeStepping;
         if( param_.getDefault("timestep.adaptive", bool(false) ) )
         {
-            adaptiveTimeStepping = std::unique_ptr< AdaptiveTimeStepping > (new AdaptiveTimeStepping( param_ ));
+            adaptiveTimeStepping.reset( new AdaptiveTimeStepping( param_ ) );
         }
 
         // Main simulation loop.
