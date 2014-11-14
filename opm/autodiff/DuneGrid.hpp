@@ -38,15 +38,16 @@
 #error This header needs the dune-alugrid module
 #endif
 
-#if HAVE_DUNE_FEM 
+#if HAVE_DUNE_FEM
 #include <dune/fem/gridpart/adaptiveleafgridpart.hh>
 #include <dune/fem/space/finitevolume.hh>
 #include <dune/fem/function/adaptivefunction.hh>
+#include <dune/fem/function/combinedfunction.hh>
 #endif
 
 namespace Opm
 {
-    template <class GridImpl>     
+    template <class GridImpl>
     class DuneGrid
     {
     public:
@@ -62,17 +63,17 @@ namespace Opm
         typedef Dune::Fem::AdaptiveLeafGridPart< Grid > GridPart;
         typedef typename GridPart :: GridViewType GridView;
 
-        typedef Dune::Fem::FunctionSpace< double, double, dimension, 1 >    FunctionSpace; 
-        typedef Dune::Fem::FiniteVolumeSpace< FunctionSpace, GridPart, 0 >  FiniteVolumeSpace; 
+        typedef Dune::Fem::FunctionSpace< double, double, dimension, 1 >    FunctionSpace;
+        typedef Dune::Fem::FiniteVolumeSpace< FunctionSpace, GridPart, 0 >  FiniteVolumeSpace;
         typedef Dune::Fem::AdaptiveDiscreteFunction< FiniteVolumeSpace >    DiscreteFunction;
 
         typedef typename Element :: Geometry                    ElementGeometry ;
         typedef typename ElementGeometry :: GlobalCoordinate    GlobalCoordinate;
 
-        class GlobalCellIndex 
+        class GlobalCellIndex
         {
-            int idx_; 
-        public:    
+            int idx_;
+        public:
             GlobalCellIndex() : idx_(-1) {}
             GlobalCellIndex& operator= ( const int index ) { idx_ = index; return *this; }
             int index() const { return idx_; }
@@ -80,21 +81,21 @@ namespace Opm
 
         typedef typename Dune::PersistentContainer< Grid, GlobalCellIndex > GlobalIndexContainer;
 
-        class DataHandle : public Dune::CommDataHandleIF< DataHandle, int > 
+        class DataHandle : public Dune::CommDataHandleIF< DataHandle, int >
         {
             GlobalIndexContainer& globalIndex_;
-        public:    
-            DataHandle( GlobalIndexContainer& globalIndex ) 
+        public:
+            DataHandle( GlobalIndexContainer& globalIndex )
                 : globalIndex_( globalIndex )
             {
                 globalIndex_.resize();
             }
-                
+
             bool contains ( int dim, int codim ) const { return codim == 0; }
             bool fixedsize( int dim, int codim ) const { return true; }
 
             //! \brief loop over all internal data handlers and call gather for
-            //! given entity 
+            //! given entity
             template<class MessageBufferImp, class EntityType>
             void gather (MessageBufferImp& buff, const EntityType& element ) const
             {
@@ -103,21 +104,21 @@ namespace Opm
             }
 
             //! \brief loop over all internal data handlers and call scatter for
-            //! given entity 
+            //! given entity
             template<class MessageBufferImp, class EntityType>
             void scatter (MessageBufferImp& buff, const EntityType& element, size_t n)
             {
                 int globalIdx = -1;
                 buff.read( globalIdx );
-                if( globalIdx >= 0 ) 
-                {   
+                if( globalIdx >= 0 )
+                {
                     globalIndex_.resize();
                     globalIndex_[ element ] = globalIdx;
                 }
             }
 
             //! \brief loop over all internal data handlers and return sum of data
-            //! size of given entity 
+            //! size of given entity
             template<class EntityType>
             size_t size (const EntityType& en) const
             {
@@ -144,10 +145,10 @@ namespace Opm
             for( int d=0; d<dimension; ++d )
                 cartDims_[ d ] = cpgrid.logicalCartesianSize()[ d ];
 
-            // compute cartesian dimensions 
+            // compute cartesian dimensions
             grid.comm().max( &cartDims_[ 0 ], dimension );
 
-            globalIndex_.reset( new GlobalIndexContainer( grid, /* codim = */ 0 ) ); 
+            globalIndex_.reset( new GlobalIndexContainer( grid, /* codim = */ 0 ) );
             globalIndex_->resize();
 
             GridPart gridPart( grid );
@@ -179,7 +180,7 @@ namespace Opm
               space_( gridPart_ ),
               ug_( dune2UnstructuredGrid( gridPart_.gridView(), globalIndex(), cartDims_, true ) )
         {
-            //printCurve( *grid_ ); 
+            //printCurve( *grid_ );
 
             std::cout << "Created DuneGrid " << std::endl;
             std::cout << "P[ " << grid().comm().rank() << " ] = " << grid().size( 0 ) << std::endl;
@@ -210,13 +211,13 @@ namespace Opm
         UnstructuredGrid & c_grid() { return *ug_; }
         const UnstructuredGrid& c_grid() const { return *ug_; }
 
-        GridView gridView () const { 
-            return gridPart_.gridView(); 
+        GridView gridView () const {
+            return gridPart_.gridView();
         }
 
-        void communicate( SimulatorState& state ) const 
+        void communicate( SimulatorState& state ) const
         {
-            if( space_.size() != state.pressure().size()  ) 
+            if( space_.size() != state.pressure().size()  )
                 std::cout << space_.size() << " " << state.pressure().size() << std::endl;
             assert( space_.size() == state.pressure().size() );
             DiscreteFunction p( "pressure", space_, &state.pressure()[0] );
@@ -233,8 +234,8 @@ namespace Opm
         }
 
         template <class GridView>
-        UnstructuredGrid* 
-        dune2UnstructuredGrid( const GridView& gridView, 
+        UnstructuredGrid*
+        dune2UnstructuredGrid( const GridView& gridView,
                                const GlobalIndexContainer& globalIndex,
                                const int cartDims[ dimension ],
                                const bool faceTags )
