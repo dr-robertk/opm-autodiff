@@ -77,7 +77,7 @@ namespace Opm
                 const size_type rowIndex = row.index();
                 for( auto col = (*row).begin(), endcol = (*row).end(); col != endcol; ++col )
                 {
-                    if( std::abs(*col) > tol ) 
+                    if( std::abs(*col) > tol )
                         out << rowIndex << " " << col.index() << std::endl;
                 }
             }
@@ -100,7 +100,7 @@ namespace Opm
             this->overflowsize = -1.0;
 #endif
 
-            // make sure to use the allocators of this matrix 
+            // make sure to use the allocators of this matrix
             // because the same allocators are used to deallocate the data
             this->a = this->allocator_.allocate(this->nnz);
             static_assert(sizeof(block_type) == sizeof(double), "This constructor requires a block type that is the same as a double.");
