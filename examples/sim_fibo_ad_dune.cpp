@@ -18,7 +18,7 @@
 */
 #include "config.h"
 
-#if HAVE_MPI 
+#if HAVE_MPI
 #warning "Using MPI"
 #endif
 
@@ -135,7 +135,7 @@ try
         porv = eclipseState->getDoubleGridProperty("PORV")->getData();
     }
 
-    if( eclipseState->getEclipseGrid()->isMinpvActive() ) 
+    if( eclipseState->getEclipseGrid()->isMinpvActive() )
     {
         std::cerr << "minpv keyword not yet working with DuneGrid" << std::endl;
         std::abort();
