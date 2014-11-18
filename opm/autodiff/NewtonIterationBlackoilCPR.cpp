@@ -210,7 +210,7 @@ namespace Opm
         // Construct linear solver.
         const double tolerance = 1e-3;
         const int maxit = 150;
-        const int verbosity = 0;
+        const int verbosity = 1; // (grid_.comm().rank() == 0) ? 1 : 0;
         const int restart = 40;
         Dune::RestartedGMResSolver< Vector > linsolve(opA, opA.scp(), opA.preconditionAdapter(), 
                                                       tolerance, restart, maxit, verbosity);

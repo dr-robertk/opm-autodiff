@@ -78,6 +78,7 @@ namespace Opm
     {
     public:
         typedef GridImpl Grid;
+        typedef typename Grid :: CollectiveCommunication  CollectiveCommunication;
 
         static const int dimension = Grid :: dimension ;
 
@@ -256,6 +257,8 @@ namespace Opm
         UnstructuredGrid &      c_grid()       { return *ug_; }
         const UnstructuredGrid& c_grid() const { return *ug_; }
 
+        const CollectiveCommunication& comm() const { return grid_->comm(); }
+
         void communicate( SimulatorState& state ) const
         {
             if( singleSpace_.size() != state.pressure().size()  )
@@ -269,12 +272,12 @@ namespace Opm
             sat2.communicate();
         }
 
-        template <class Matrix> 
-        Dune::Fem::DGParallelMatrixAdapter< Matrix > matrixAdapter( Matrix& matrix ) { 
-            typedef Dune::Fem::FemSeqILU0< Matrix, typename Matrix::RowBlockVectorType, 
-                                                   typename Matrix::ColBlockVectorType > PreconditionerType;
-            Dune::Fem::PreconditionerWrapper< Matrix > precon( matrix, 0, 1.0, (PreconditionerType *) 0 );
-            return Dune::Fem::DGParallelMatrixAdapter< Matrix >( matrix, vectorSpace_, vectorSpace_, precon );
+        SystemMatrixAdapterType matrixAdapter( SystemMatrixType& matrix ) { 
+            //typedef Dune::Fem::FemSeqILU0< Matrix, typename Matrix::RowBlockVectorType, 
+            //                                       typename Matrix::ColBlockVectorType > PreconditionerType;
+            //Dune::Fem::PreconditionerWrapper< Matrix > precon( matrix, 0, 1.0, (PreconditionerType *) 0 );
+            typedef typename SystemMatrixAdapterType :: PreconditionAdapterType  PreConType;
+            return SystemMatrixAdapterType( matrix, vectorSpace_, vectorSpace_, PreConType() );
         }
 
         void gather( const SimulatorState& localState )
