@@ -35,6 +35,7 @@ namespace Opm
     /// The approach is similar to the one described in
     /// "Preconditioning for Efficiently Applying Algebraic Multigrid
     /// in Fully Implicit Reservoir Simulations" by Gries et al (SPE 163608).
+    template <class Grid>
     class NewtonIterationBlackoilCPR : public NewtonIterationBlackoilInterface
     {
     public:
@@ -45,7 +46,7 @@ namespace Opm
         ///                    Parameters:
         ///                        cpr_use_amg      (default false) if true, use AMG preconditioner for elliptic part
         ///                        cpr_use_bicgstab (default true)  if true, use BiCGStab (else use CG) for elliptic part
-        NewtonIterationBlackoilCPR(const parameter::ParameterGroup& param);
+        NewtonIterationBlackoilCPR(const parameter::ParameterGroup& param, Grid& grid);
 
         /// Solve the system of linear equations Ax = b, with A being the
         /// combined derivative matrix of the residual and b
@@ -57,6 +58,7 @@ namespace Opm
         /// \copydoc NewtonIterationBlackoilInterface::iterations
         virtual int iterations () const { return iterations_; }
     private:
+        Grid& grid_;
         mutable int iterations_;
         bool use_amg_;
         bool use_bicgstab_;

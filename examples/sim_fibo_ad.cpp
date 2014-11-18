@@ -62,8 +62,6 @@
 #include <vector>
 #include <numeric>
 
-#include <opm/autodiff/printcurve.hh>
-
 namespace
 {
     void warnIfUnusedParams(const Opm::parameter::ParameterGroup& param)
@@ -133,8 +131,6 @@ try
     std::vector<double> porv = eclipseState->getDoubleGridProperty("PORV")->getData();
     grid.reset(new GridManager(eclipseState->getEclipseGrid(), porv));
     auto &cGrid = *grid->c_grid();
-
-    printCurve( cGrid );
 
     const PhaseUsage pu = Opm::phaseUsageFromDeck(deck);
     Opm::EclipseWriter outputWriter(param,

@@ -109,8 +109,10 @@ namespace Opm
 
 
     /// Construct a system solver.
-    NewtonIterationBlackoilCPR::NewtonIterationBlackoilCPR(const parameter::ParameterGroup& param)
-        : iterations_( 0 )
+    template <class Grid>
+    NewtonIterationBlackoilCPR<Grid>::NewtonIterationBlackoilCPR(const parameter::ParameterGroup& param, Grid& grid)
+        : grid_( grid ),
+          iterations_( 0 )
     {
         use_amg_ = param.getDefault("cpr_use_amg", false);
         use_bicgstab_ = param.getDefault("cpr_use_bicgstab", true);
@@ -125,8 +127,9 @@ namespace Opm
     /// being the residual itself.
     /// \param[in] residual   residual object containing A and b.
     /// \return               the solution x
-    NewtonIterationBlackoilCPR::SolutionVector
-    NewtonIterationBlackoilCPR::computeNewtonIncrement(const LinearisedBlackoilResidual& residual) const
+    template <class Grid>
+    typename NewtonIterationBlackoilCPR<Grid>::SolutionVector
+    NewtonIterationBlackoilCPR<Grid>::computeNewtonIncrement(const LinearisedBlackoilResidual& residual) const
     {
         // Build the vector of equations.
         const int np = residual.material_balance_eq.size();
@@ -169,40 +172,47 @@ namespace Opm
         SolutionVector dx(SolutionVector::Zero(b.size()));
 
         // Create ISTL matrix.
-        DuneMatrix istlA( A );
+        typename Grid :: SystemMatrixType istlA( A );
+        // Construct operator, scalar product and vectors needed.
+        typedef typename Grid :: SystemMatrixAdapterType Operator; 
+        Operator opA( grid_.matrixAdapter( istlA ) );
+
+        //DuneMatrix istlA( A );
         //std::ofstream file ("matrixpattern_new.gnu");
         //istlA.printPattern( file );
+        //grid_.matrixAdapter( istlA );
 
         // Create ISTL matrix for elliptic part.
-        DuneMatrix istlAe( A.topLeftCorner(nc, nc) );
+        //DuneMatrix istlAe( A.topLeftCorner(nc, nc) );
         //std::ofstream file1 ("matrixpattern_new1.gnu");
         //istlAe.printPattern( file1 );
 
         //std::abort();
 
         // Construct operator, scalar product and vectors needed.
-        typedef Dune::MatrixAdapter<Mat,Vector,Vector> Operator;
-        Operator opA(istlA);
-        Dune::SeqScalarProduct<Vector> sp;
+        //typedef Dune::MatrixAdapter<Mat,Vector,Vector> Operator;
+        //Operator opA(istlA);
+        //Dune::SeqScalarProduct<Vector> sp;
         // Right hand side.
-        Vector istlb(opA.getmat().N());
+        Vector istlb(istlA.N());
         std::copy_n(b.data(), istlb.size(), istlb.begin());
         // System solution
-        Vector x(opA.getmat().M());
+        Vector x(istlA.M());
         x = 0.0;
 
         // Construct preconditioner.
         // typedef Dune::SeqILU0<Mat,Vector,Vector> Preconditioner;
-        typedef Opm::CPRPreconditioner<Mat,Vector,Vector> Preconditioner;
-        const double relax = 1.0;
-        Preconditioner precond(istlA, istlAe, relax, use_amg_, use_bicgstab_);
+        //typedef Opm::CPRPreconditioner<Mat,Vector,Vector> Preconditioner;
+        //const double relax = 1.0;
+        //Preconditioner precond(istlA, istlAe, relax, use_amg_, use_bicgstab_);
 
         // Construct linear solver.
         const double tolerance = 1e-3;
         const int maxit = 5000;
         const int verbosity = 1;
         const int restart = 40;
-        Dune::RestartedGMResSolver<Vector> linsolve(opA, sp, precond, tolerance, restart, maxit, verbosity);
+        Dune::RestartedGMResSolver< Vector > linsolve(opA, opA.scp(), opA.preconditionAdapter(), 
+                                                      tolerance, restart, maxit, verbosity);
 
         // Solve system.
         Dune::InverseOperatorResult result;

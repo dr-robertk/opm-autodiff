@@ -21,6 +21,7 @@
 
 #include <opm/core/grid.h>
 #include <opm/core/simulator/SimulatorState.hpp>
+#include <opm/autodiff/DuneMatrix.hpp>
 
 // we need dune-cornerpoint for reading the Dune grid.
 #if HAVE_DUNE_CORNERPOINT
@@ -42,11 +43,36 @@
 #include <dune/fem/gridpart/adaptiveleafgridpart.hh>
 #include <dune/fem/space/finitevolume.hh>
 #include <dune/fem/function/adaptivefunction.hh>
+#include <dune/fem/function/blockvectorfunction.hh>
 #include <dune/fem/function/combinedfunction.hh>
+#include <dune/fem/operator/matrix/istlmatrixadapter.hh>
+#include <dune/fem/operator/matrix/preconditionerwrapper.hh>
 #endif
 
 namespace Opm
 {
+    template <class DomainSpace, class RangeSpace = DomainSpace > 
+    class IstlMatrix : public DuneMatrix
+    {
+    public:
+        typedef DuneMatrix  BaseType;
+        typedef DomainSpace DomainSpaceType ;
+        typedef RangeSpace  RangeSpaceType ;
+
+        typedef Dune::Fem::ISTLBlockVectorDiscreteFunction< DomainSpaceType > RowDiscreteFunctionType ;
+        typedef Dune::Fem::ISTLBlockVectorDiscreteFunction< RangeSpaceType  > ColDiscreteFunctionType ;
+
+        typedef typename RowDiscreteFunctionType :: DofStorageType  RowBlockVectorType; 
+        typedef typename ColDiscreteFunctionType :: DofStorageType  ColBlockVectorType; 
+
+        typedef typename RowDiscreteFunctionType :: GridType :: Traits :: 
+            CollectiveCommunication  CollectiveCommunictionType;
+
+        IstlMatrix( const Eigen::SparseMatrix<double, Eigen::RowMajor>& matrix )
+            : BaseType( matrix )
+        {}
+    };
+
     template <class GridImpl>
     class DuneGrid
     {
@@ -60,12 +86,27 @@ namespace Opm
         typedef typename Grid :: Traits :: template Codim< dimension > :: Entity         Vertex;
         typedef typename Grid :: Traits :: template Codim< dimension > :: EntityPointer  VertexPointer;
 
-        typedef Dune::Fem::AdaptiveLeafGridPart< Grid > GridPart;
-        typedef typename GridPart :: GridViewType GridView;
+        typedef Dune::Fem::AdaptiveLeafGridPart< Grid >   AllGridPart;
 
+        typedef Dune::Fem::DGAdaptiveLeafGridPart< Grid > GridPart;
+        typedef typename GridPart :: GridViewType         GridView;
         typedef Dune::Fem::FunctionSpace< double, double, dimension, 1 >    FunctionSpace;
-        typedef Dune::Fem::FiniteVolumeSpace< FunctionSpace, GridPart, 0 >  FiniteVolumeSpace;
+        typedef Dune::Fem::FiniteVolumeSpace< FunctionSpace, GridPart, 0 /* codim */ >  FiniteVolumeSpace;
         typedef Dune::Fem::AdaptiveDiscreteFunction< FiniteVolumeSpace >    DiscreteFunction;
+
+        typedef Dune::Fem::CombinedSpace< FiniteVolumeSpace, 3, Dune::Fem::VariableBased >  VectorSpaceType;
+
+        typedef Dune::Fem::ISTLBlockVectorDiscreteFunction< FiniteVolumeSpace >  ISTLDiscreteFunction;
+        typedef Dune::Fem::ISTLBlockVectorDiscreteFunction< VectorSpaceType   >  ISTLVectorDiscreteFunction;
+
+        // we can only deal with block size 1 at the moment
+        static_assert( ISTLVectorDiscreteFunction::localBlockSize == 1, "blocksize error" );
+
+        typedef IstlMatrix< VectorSpaceType   > SystemMatrixType;
+        typedef IstlMatrix< FiniteVolumeSpace > EllipticMatrixType;
+
+        typedef Dune::Fem::DGParallelMatrixAdapter< SystemMatrixType >   SystemMatrixAdapterType;
+        typedef Dune::Fem::DGParallelMatrixAdapter< EllipticMatrixType > EllipticMatrixAdapterType;
 
         typedef typename Element :: Geometry                    ElementGeometry ;
         typedef typename ElementGeometry :: GlobalCoordinate    GlobalCoordinate;
@@ -151,10 +192,10 @@ namespace Opm
             globalIndex_.reset( new GlobalIndexContainer( grid, /* codim = */ 0 ) );
             globalIndex_->resize();
 
-            GridPart gridPart( grid );
+            AllGridPart gridPart( grid );
 
             // store global cartesian index of cell
-            typedef typename GridPart :: template Codim< 0 > :: IteratorType Iterator;
+            typedef typename AllGridPart :: template Codim< 0 > :: IteratorType Iterator;
             const Iterator end = gridPart.template end<0> ();
             int count = 0;
             for( Iterator it = gridPart.template begin<0> (); it != end; ++it, ++count )
@@ -176,9 +217,11 @@ namespace Opm
 
         DuneGrid(Opm::DeckConstPtr deck, const std::vector<double>& porv )
             : grid_( createDuneGrid( deck, porv ) ),
+              allGridPart_( grid() ),
               gridPart_( grid() ),
-              space_( gridPart_ ),
-              ug_( dune2UnstructuredGrid( gridPart_.gridView(), globalIndex(), cartDims_, true ) )
+              singleSpace_( gridPart_ ),
+              vectorSpace_( gridPart_ ),
+              ug_( dune2UnstructuredGrid( allGridPart_.gridView(), globalIndex(), cartDims_, true ) )
         {
             //printCurve( *grid_ );
 
@@ -201,31 +244,37 @@ namespace Opm
         Grid& grid() { return *grid_; }
         const Grid& grid() const { return *grid_; }
 
+        GridView gridView () const { return gridPart_.gridView(); }
+
         const GlobalIndexContainer globalIndex() const { return *globalIndex_; }
 
         // cast operators for UnstructuredGrid
         operator const UnstructuredGrid& () const { return *ug_; }
-        operator UnstructuredGrid& () { return *ug_; }
+        operator       UnstructuredGrid& ()       { return *ug_; }
 
         // return unstructured grid
-        UnstructuredGrid & c_grid() { return *ug_; }
+        UnstructuredGrid &      c_grid()       { return *ug_; }
         const UnstructuredGrid& c_grid() const { return *ug_; }
-
-        GridView gridView () const {
-            return gridPart_.gridView();
-        }
 
         void communicate( SimulatorState& state ) const
         {
-            if( space_.size() != state.pressure().size()  )
-                std::cout << space_.size() << " " << state.pressure().size() << std::endl;
-            assert( space_.size() == state.pressure().size() );
-            DiscreteFunction p( "pressure", space_, &state.pressure()[0] );
+            if( singleSpace_.size() != state.pressure().size()  )
+                std::cout << singleSpace_.size() << " " << state.pressure().size() << std::endl;
+            assert( singleSpace_.size() == state.pressure().size() );
+            DiscreteFunction p( "pressure", singleSpace_, &state.pressure()[0] );
             p.communicate();
-            DiscreteFunction sat( "sat", space_, &state.saturation()[0] );
+            DiscreteFunction sat( "sat", singleSpace_, &state.saturation()[0] );
             sat.communicate();
-            DiscreteFunction sat2( "sat2", space_, &state.saturation()[ space_.size() ] );
+            DiscreteFunction sat2( "sat2", singleSpace_, &state.saturation()[ singleSpace_.size() ] );
             sat2.communicate();
+        }
+
+        template <class Matrix> 
+        Dune::Fem::DGParallelMatrixAdapter< Matrix > matrixAdapter( Matrix& matrix ) { 
+            typedef Dune::Fem::FemSeqILU0< Matrix, typename Matrix::RowBlockVectorType, 
+                                                   typename Matrix::ColBlockVectorType > PreconditionerType;
+            Dune::Fem::PreconditionerWrapper< Matrix > precon( matrix, 0, 1.0, (PreconditionerType *) 0 );
+            return Dune::Fem::DGParallelMatrixAdapter< Matrix >( matrix, vectorSpace_, vectorSpace_, precon );
         }
 
         void gather( const SimulatorState& localState )
@@ -286,6 +335,7 @@ namespace Opm
                 // assert( element.type().isHexahedron() );
 
                 const int elIndex = indexSet.index( element );
+                assert( gridPart_.indexSet().index( element ) == elIndex );
 
                 const bool isGhost = element.partitionType() != Dune :: InteriorEntity ;
 
@@ -412,8 +462,10 @@ namespace Opm
     protected:
         std::unique_ptr< GlobalIndexContainer > globalIndex_;
         std::unique_ptr< Grid > grid_;
+        AllGridPart allGridPart_;
         GridPart gridPart_;
-        FiniteVolumeSpace space_;
+        FiniteVolumeSpace singleSpace_;
+        VectorSpaceType   vectorSpace_;
         std::unique_ptr< UnstructuredGrid > ug_;
         int cartDims_[ dimension ];
     };

@@ -66,14 +66,14 @@
 #include <vector>
 #include <numeric>
 
-#include <opm/autodiff/printcurve.hh>
-
 #if HAVE_DUNE_ALUGRID
 #include <dune/alugrid/dgf.hh>
 #include <dune/alugrid/common/fromtogridfactory.hh>
 #else
 #error This header needs the dune-alugrid module
 #endif
+
+#include <opm/autodiff/NewtonIterationBlackoilCPR.cpp>
 
 namespace
 {
@@ -148,7 +148,6 @@ try
 
     //grid.reset(new GridManager(eclipseState->getEclipseGrid(), porv));
     auto &cGrid = grid.c_grid();
-    printCurve( cGrid );
 
     const PhaseUsage pu = Opm::phaseUsageFromDeck(deck);
     Opm::EclipseWriter outputWriter(param,
@@ -197,7 +196,7 @@ try
     // Solver for Newton iterations.
     std::unique_ptr<NewtonIterationBlackoilInterface> fis_solver;
     if (param.getDefault("use_cpr", true)) {
-        fis_solver.reset(new NewtonIterationBlackoilCPR(param));
+        fis_solver.reset(new NewtonIterationBlackoilCPR< Grid > (param, grid));
     } else {
         fis_solver.reset(new NewtonIterationBlackoilSimple(param));
     }
