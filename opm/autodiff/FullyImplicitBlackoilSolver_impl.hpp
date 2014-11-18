@@ -285,17 +285,11 @@ namespace {
 
         bool converged = false;
         double omega = 1.;
-        const double r0  = residualNorm();
 
         residual_history.push_back(residuals());
 
-        converged = getConvergence(dt);
-
         int          it  = 0;
-        std::cout << "\nIteration         Residual\n"
-                  << std::setw(9) << it << std::setprecision(9)
-                  << std::setw(18) << r0 << std::endl;
-
+        converged = getConvergence(dt,it);
         const int sizeNonLinear = residual_.sizeNonLinear();
 
         V dxOld = V::Zero(sizeNonLinear);
@@ -325,16 +319,12 @@ namespace {
 
             assemble(pvdt, x, xw);
 
-            const double r = residualNorm();
-
             residual_history.push_back(residuals());
-
-            converged = getConvergence(dt);
 
             // increase iteration counter
             ++it;
-            std::cout << std::setw(9) << it << std::setprecision(9)
-                      << std::setw(18) << r << std::endl;
+
+            converged = getConvergence(dt,it);
         }
 
         if (!converged) {
@@ -1816,7 +1806,7 @@ namespace {
 
     template<class T>
     bool
-    FullyImplicitBlackoilSolver<T>::getConvergence(const double dt)
+    FullyImplicitBlackoilSolver<T>::getConvergence(const double dt, const int iteration)
     {
         const double tol_mb = 1.0e-7;
         const double tol_cnv = 1.0e-3;
@@ -1879,11 +1869,13 @@ namespace {
             RG_sum = RG.sum();
         }
 
-        double tempValue = tol_mb * pvSum /dt;
+        const double mass_balance_residual_water = fabs(BW_avg*RW_sum) * dt / pvSum;
+        const double mass_balance_residual_oil = fabs(BO_avg*RO_sum) * dt / pvSum;
+        const double mass_balance_residual_gas = fabs(BG_avg*RG_sum) * dt / pvSum;
 
-        bool converged_MB = (fabs(BW_avg*RW_sum) < tempValue)
-                         && (fabs(BO_avg*RO_sum) < tempValue)
-                         && (fabs(BG_avg*RG_sum) < tempValue);
+        bool converged_MB = (mass_balance_residual_water < tol_mb)
+                         && (mass_balance_residual_oil< tol_mb)
+                         && (mass_balance_residual_gas < tol_mb);
 
         bool converged_CNV = (CNVW < tol_cnv) && (CNVO < tol_cnv) && (CNVG < tol_cnv);
 
@@ -1894,11 +1886,23 @@ namespace {
 
         bool converged = converged_MB && converged_CNV && converged_Well;
 
-#ifdef OPM_VERBOSE
-        std::cout << " CNVW " << CNVW << " CNVO " << CNVO << " CNVG " << CNVG << std::endl;
-        std::cout << " converged_MB " << converged_MB << " converged_CNV " << converged_CNV
-                  << " converged_Well " << converged_Well << " converged " << converged << std::endl;
-#endif
+        if (iteration == 0) {
+            std::cout << "\nIter    MB(OIL)  MB(WATER)    MB(GAS)       CNVW       CNVO       CNVG  WELL-FLOW WELL-CNTRL\n";
+        }
+        const std::streamsize oprec = std::cout.precision(3);
+        const std::ios::fmtflags oflags = std::cout.setf(std::ios::scientific);
+        std::cout << std::setw(4) << iteration
+                  << std::setw(11) << mass_balance_residual_water
+                  << std::setw(11) << mass_balance_residual_oil
+                  << std::setw(11) << mass_balance_residual_gas
+                  << std::setw(11) << CNVW
+                  << std::setw(11) << CNVO
+                  << std::setw(11) << CNVG
+                  << std::setw(11) << residualWellFlux
+                  << std::setw(11) << residualWell
+                  << std::endl;
+        std::cout.precision(oprec);
+        std::cout.flags(oflags);
         return converged;
     }
 

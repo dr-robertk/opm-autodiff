@@ -44,6 +44,7 @@
 
 #include <opm/core/utility/platform_dependent/reenable_warnings.h>
 
+#include <Eigen/UmfPackSupport>
 
 namespace Opm
 {
@@ -208,8 +209,8 @@ namespace Opm
 
         // Construct linear solver.
         const double tolerance = 1e-3;
-        const int maxit = 5000;
-        const int verbosity = 1;
+        const int maxit = 150;
+        const int verbosity = 0;
         const int restart = 40;
         Dune::RestartedGMResSolver< Vector > linsolve(opA, opA.scp(), opA.preconditionAdapter(), 
                                                       tolerance, restart, maxit, verbosity);
@@ -256,36 +257,51 @@ namespace Opm
             }
 
             // Schur complement of (A B ; C D) wrt. D is A - B*inv(D)*C.
-            // This is applied to all 2x2 block submatrices.
-            // We require that D is diagonal.
-            const M& D = eqs[n].derivative()[n];
-            if (!isDiagonal(D)) {
-                // std::cout << "++++++++++++++++++++++++++++++++++++++++++++\n"
-                //           << D
-                //           << "++++++++++++++++++++++++++++++++++++++++++++\n" << std::endl;
-                std::cerr << "WARNING (ignored): Cannot do Schur complement with respect to non-diagonal block." << std::endl;
-                //OPM_THROW(std::logic_error, "Cannot do Schur complement with respect to non-diagonal block.");
-            }
-            V diag = D.diagonal();
-            Eigen::DiagonalMatrix<double, Eigen::Dynamic> invD = (1.0 / diag).matrix().asDiagonal();
+            // This is applied to all 2x2 block submatrices
+            // The right hand side is modified accordingly. bi = bi - B * inv(D)* bn;
+            // We do not explicitly compute inv(D) instead Du = C is solved
+
+            // Extract the submatrix
+            const std::vector<M>& Jn = eqs[n].derivative();
+
+            // Use sparse LU to solve the block submatrices i.e compute inv(D)
+            const Eigen::UmfPackLU< M > solver(Jn[n]);
+            M id(Jn[n].rows(), Jn[n].cols());
+            id.setIdentity();
+            const M Di = solver.solve(id);
+
+            // compute inv(D)*bn for the update of the right hand side
+            const Eigen::VectorXd& Dibn = solver.solve(eqs[n].value().matrix());
+
             std::vector<V> vals(num_eq);              // Number n will remain empty.
             std::vector<std::vector<M>> jacs(num_eq); // Number n will remain empty.
             for (int eq = 0; eq < num_eq; ++eq) {
-                if (eq == n) {
+                jacs[eq].reserve(num_eq - 1);
+                const std::vector<M>& Je = eqs[eq].derivative();
+                const M& B = Je[n];
+                // Update right hand side.
+                vals[eq] = eqs[eq].value().matrix() - B * Dibn;
+            }
+            for (int var = 0; var < num_eq; ++var) {
+                if (var == n) {
                     continue;
                 }
-                jacs[eq].reserve(num_eq - 1);
-                const M& B = eqs[eq].derivative()[n];
-                for (int var = 0; var < num_eq; ++var) {
-                    if (var == n) {
+                // solve Du = C
+                const M u = Di * Jn[var]; // solver.solve(Jn[var]);
+                for (int eq = 0; eq < num_eq; ++eq) {
+                    if (eq == n) {
                         continue;
                     }
+                    const std::vector<M>& Je = eqs[eq].derivative();
+                    const M& B = Je[n];
+
                     // Create new jacobians.
-                    M schur_jac = eqs[eq].derivative()[var] - B * (invD * eqs[n].derivative()[var]);
-                    jacs[eq].push_back(schur_jac);
+                    // Add A
+                    jacs[eq].push_back(Je[var]);
+                    M& J = jacs[eq].back();
+                    // Subtract Bu (B*inv(D)*C)
+                    J -= B * u;
                 }
-                // Update right hand side.
-                vals[eq] = eqs[eq].value().matrix() - B * (invD * eqs[n].value().matrix());
             }
 
             // Create return value.
@@ -308,31 +324,26 @@ namespace Opm
         {
             // The equation to solve for the unknown y (to be recovered) is
             //    Cx + Dy = b
-            //    y = inv(D) (b - Cx)
+            //    Dy = (b - Cx)
             // where D is the eliminated block, C is the jacobian of
             // the eliminated equation with respect to the
             // non-eliminated unknowms, b is the right-hand side of
             // the eliminated equation, and x is the partial solution
             // of the non-eliminated unknowns.
-            // We require that D is diagonal.
 
-            // Find inv(D).
             const M& D = equation.derivative()[n];
-            if (!isDiagonal(D)) {
-                std::cerr << "WARNING (ignored): Cannot do Schur complement with respect to non-diagonal block." << std::endl;
-                //OPM_THROW(std::logic_error, "Cannot do Schur complement with respect to non-diagonal block.");
-            }
-            V diag = D.diagonal();
-            Eigen::DiagonalMatrix<double, Eigen::Dynamic> invD = (1.0 / diag).matrix().asDiagonal();
-
             // Build C.
             std::vector<M> C_jacs = equation.derivative();
             C_jacs.erase(C_jacs.begin() + n);
             ADB eq_coll = collapseJacs(ADB::function(equation.value(), C_jacs));
             const M& C = eq_coll.derivative()[0];
 
+            // Use sparse LU to solve the block submatrices
+            const Eigen::UmfPackLU< M > solver(D);
+
             // Compute value of eliminated variable.
-            V elim_var = invD * (equation.value().matrix() - C * partial_solution.matrix());
+            const Eigen::VectorXd b = (equation.value().matrix() - C * partial_solution.matrix());
+            const Eigen::VectorXd elim_var = solver.solve(b);
 
             // Find the relevant sizes to use when reconstructing the full solution.
             const int nelim = equation.size();
