@@ -22,7 +22,7 @@ find_opm_package (
   "CXX11Features REQUIRED;
    dune-common REQUIRED;
    dune-grid  REQUIRED;
-   dune-alugrid REQUIRED;
+   dune-alugrid;
    ZLIB;
    ZOLTAN;
    METIS
