@@ -51,7 +51,7 @@
 
 namespace Opm
 {
-    template <class DomainSpace, class RangeSpace = DomainSpace > 
+    template <class DomainSpace, class RangeSpace = DomainSpace >
     class IstlMatrix : public DuneMatrix
     {
     public:
@@ -62,10 +62,10 @@ namespace Opm
         typedef Dune::Fem::ISTLBlockVectorDiscreteFunction< DomainSpaceType > RowDiscreteFunctionType ;
         typedef Dune::Fem::ISTLBlockVectorDiscreteFunction< RangeSpaceType  > ColDiscreteFunctionType ;
 
-        typedef typename RowDiscreteFunctionType :: DofStorageType  RowBlockVectorType; 
-        typedef typename ColDiscreteFunctionType :: DofStorageType  ColBlockVectorType; 
+        typedef typename RowDiscreteFunctionType :: DofStorageType  RowBlockVectorType;
+        typedef typename ColDiscreteFunctionType :: DofStorageType  ColBlockVectorType;
 
-        typedef typename RowDiscreteFunctionType :: GridType :: Traits :: 
+        typedef typename RowDiscreteFunctionType :: GridType :: Traits ::
             CollectiveCommunication  CollectiveCommunictionType;
 
         IstlMatrix( const Eigen::SparseMatrix<double, Eigen::RowMajor>& matrix )
@@ -272,8 +272,8 @@ namespace Opm
             sat2.communicate();
         }
 
-        SystemMatrixAdapterType matrixAdapter( SystemMatrixType& matrix ) { 
-            //typedef Dune::Fem::FemSeqILU0< Matrix, typename Matrix::RowBlockVectorType, 
+        SystemMatrixAdapterType matrixAdapter( SystemMatrixType& matrix ) {
+            //typedef Dune::Fem::FemSeqILU0< Matrix, typename Matrix::RowBlockVectorType,
             //                                       typename Matrix::ColBlockVectorType > PreconditionerType;
             //Dune::Fem::PreconditionerWrapper< Matrix > precon( matrix, 0, 1.0, (PreconditionerType *) 0 );
             typedef typename SystemMatrixAdapterType :: PreconditionAdapterType  PreConType;
