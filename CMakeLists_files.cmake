@@ -73,6 +73,7 @@ endif()
 # find tutorials examples -name '*.c*' -printf '\t%p\n' | sort
 list (APPEND EXAMPLE_SOURCE_FILES
 	examples/find_zero.cpp
+	examples/sim_fibo_ad.cpp
 	examples/sim_fibo_ad_dune.cpp
 	examples/sim_2p_incomp_ad.cpp
 	examples/sim_simple.cpp
