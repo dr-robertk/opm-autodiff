@@ -74,6 +74,7 @@
 #endif
 
 #include <opm/autodiff/NewtonIterationBlackoilCPR.cpp>
+#include <opm/autodiff/PrintCurve.hpp>
 
 namespace
 {
@@ -148,6 +149,11 @@ try
 
     //grid.reset(new GridManager(eclipseState->getEclipseGrid(), porv));
     auto &cGrid = grid.c_grid();
+
+    {
+        std::ofstream curveFile ( "dunecurve.gnu" );
+        Opm::printCurve( cGrid, curveFile );
+    }
 
     const PhaseUsage pu = Opm::phaseUsageFromDeck(deck);
     Opm::EclipseWriter outputWriter(param,

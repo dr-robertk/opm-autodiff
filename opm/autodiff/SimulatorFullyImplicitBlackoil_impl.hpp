@@ -333,14 +333,12 @@ namespace Opm
                 //outputStateMatlab(grid_, state, timer.currentStepNum(), output_dir_);
                 //outputWellStateMatlab(well_state,timer.currentStepNum(), output_dir_);
             }
-            /*
             if (output_) {
                 if (timer.currentStepNum() == 0) {
                     output_writer_.writeInit(timer);
                 }
                 output_writer_.writeTimeStep(timer, state, well_state.basicWellState());
             }
-            */
 
             // Max oil saturation (for VPPARS), hysteresis update.
             props_.updateSatOilMax(state.saturation());

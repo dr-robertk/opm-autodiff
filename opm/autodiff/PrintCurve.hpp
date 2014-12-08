@@ -28,12 +28,12 @@ namespace Opm
     template <class UnstructuredGrid>
     inline void printCurve( const UnstructuredGrid& grid, std::ostream& out )
     {
-        const int numCells = grid.num_cells;
+        const int numCells = grid.number_of_cells;
         const int dim = grid.dimensions;
         for( int cell = 0; cell<numCells; ++cell )
         {
             for ( int d=0; d<dim; ++d )
-                out << grid.cell_centroids[ cell ][ d ] << " ";
+                out << grid.cell_centroids[ cell*dim + d ] << " ";
             out << std::endl;
         }
     }
