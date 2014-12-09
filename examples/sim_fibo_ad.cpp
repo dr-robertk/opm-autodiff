@@ -56,6 +56,8 @@
 #include <boost/filesystem.hpp>
 #include <boost/algorithm/string.hpp>
 
+#include <opm/autodiff/NewtonIterationBlackoilCPR.cpp>
+
 #include <memory>
 #include <algorithm>
 #include <iostream>
@@ -179,7 +181,8 @@ try
     // Solver for Newton iterations.
     std::unique_ptr<NewtonIterationBlackoilInterface> fis_solver;
     if (param.getDefault("use_cpr", true)) {
-        fis_solver.reset(new NewtonIterationBlackoilCPR(param));
+        UnstructuredGrid& grd = const_cast<UnstructuredGrid &> (*(grid->c_grid()));
+        fis_solver.reset(new NewtonIterationBlackoilCPR<UnstructuredGrid> (param, grd));
     } else {
         fis_solver.reset(new NewtonIterationBlackoilSimple(param));
     }

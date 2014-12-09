@@ -183,15 +183,20 @@ namespace Opm
         //Operator opA( grid_.matrixAdapter( istlA ) );
 
         DuneMatrix istlA( A );
-        //std::ofstream file ("matrixpattern_new.gnu");
-        //istlA.printPattern( file );
         //grid_.matrixAdapter( istlA );
 
         // Create ISTL matrix for elliptic part.
         DuneMatrix istlAe( A.topLeftCorner(nc, nc) );
-        //std::ofstream file1 ("matrixpattern_new1.gnu");
-        //istlAe.printPattern( file1 );
 
+        static bool printed = false ;
+        if( ! printed )
+        {
+            std::ofstream file ("matrixpattern_A.gnu");
+            istlA.printPattern( file );
+            std::ofstream file1 ("matrixpattern_Ae.gnu");
+            istlAe.printPattern( file1 );
+            printed = true;
+        }
         //std::abort();
 
         // Construct operator, scalar product and vectors needed.

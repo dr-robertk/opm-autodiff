@@ -330,8 +330,8 @@ namespace Opm
                 if (output_vtk_) {
                     outputStateVtk(grid_, state, timer.currentStepNum(), output_dir_);
                 }
-                //outputStateMatlab(grid_, state, timer.currentStepNum(), output_dir_);
-                //outputWellStateMatlab(well_state,timer.currentStepNum(), output_dir_);
+                outputStateMatlab(grid_, state, timer.currentStepNum(), output_dir_);
+                outputWellStateMatlab(well_state,timer.currentStepNum(), output_dir_);
             }
             if (output_) {
                 if (timer.currentStepNum() == 0) {
@@ -370,7 +370,7 @@ namespace Opm
             }
 
             // communicate state
-            grid_.communicate( state );
+            // grid_.communicate( state );
 
             // take time that was used to solve system for this reportStep
             solver_timer.stop();

@@ -69,6 +69,22 @@ namespace Opm
                                   state.faceflux(), cell_velocity);
         dm["velocity"] = &cell_velocity;
 
+        const UnstructuredGrid& grd = grid;
+        std::vector< int > eclOrder( grd.number_of_cells, int(-1) );
+        if( grd.global_cell )
+        {
+            std::map<int, int> eclMap;
+            for( int i=0; i<grd.number_of_cells; ++i )
+                eclMap[ grd.global_cell[ i ] ] = i;
+            int i=0;
+            for( auto it = eclMap.begin(), e = eclMap.end(); it != e ; ++it )
+                eclOrder[ i++ ] = (*it).second;
+        }
+        else {
+            for( int i=0; i<grd.number_of_cells; ++i ) eclOrder[ i ] = i;
+        }
+
+
         // Write data (not grid) in Matlab format
         for (Opm::DataMap::const_iterator it = dm.begin(); it != dm.end(); ++it) {
             std::ostringstream fname;
@@ -87,7 +103,14 @@ namespace Opm
             }
             file.precision(15);
             const std::vector<double>& d = *(it->second);
-            std::copy(d.begin(), d.end(), std::ostream_iterator<double>(file, "\n"));
+            const size_t size = d.size();
+            if( size == grd.number_of_cells )
+            {
+                for( int i=0; i<size; ++i )
+                    file << d[ eclOrder[ i ] ] << std::endl;
+            }
+            else
+                std::copy(d.begin(), d.end(), std::ostream_iterator<double>(file, "\n"));
         }
     }
 
@@ -117,7 +140,7 @@ namespace Opm
         Dune::VTKWriter< GridView > writer(gridView, Dune::VTK::nonconforming);
         writer.addCellData(state.saturation(), "saturation", state.numPhases());
         writer.addCellData(state.pressure(), "pressure", 1);
-        
+
         std::vector<double> cell_velocity;
         Opm::estimateCellVelocity(grid.c_grid(),
                                   state.faceflux(), cell_velocity);

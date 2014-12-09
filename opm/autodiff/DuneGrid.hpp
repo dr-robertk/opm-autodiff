@@ -177,15 +177,42 @@ namespace Opm
             // create CpGrid from deck
             cpgrid.processEclipseFormat(deck, 0.0, false, false);
 
+            for( int d=0; d<dimension; ++d )
+                cartDims_[ d ] = cpgrid.logicalCartesianSize()[ d ];
+
             // grid factory converting a grid
             Dune::FromToGridFactory< Grid > factory;
 
-            // create Grid from CpGrid
-            std::vector< int > ordering;
-            Grid& grid = *( factory.convert( cpgrid, ordering ) );
+            // store global cartesian index of cell
+            std::map< int, int > globalIdMap ;
+            int index = 0;
+            /*
+            for( auto it  = cpgrid.leafGridView().template begin<0>(),
+                      end = cpgrid.leafGridView().template end<0>  (); it != end; ++it, ++index )
+            {
+                std::array<int,3> ijk;
+                cpgrid.getIJK( index, ijk );
+                const int globalId = ijk[ 0 ] + cartDims_[ 0 ] * ijk[ 1 ] + cartDims_[ 1 ] * cartDims_[ 0 ] * ijk[ 2 ];
+                //const int globalId = ijk[ 1 ] + cartDims_[ 1 ] * ijk[ 2 ] + cartDims_[ 2 ] * cartDims_[ 1 ] * ijk[ 0 ];
+                if( globalIdMap.find( globalId ) != globalIdMap.end() )
+                    std::cout << "GlobalId not unique" << std::endl;
+                //const int globalId = ijk[ 2 ] + cartDims_[ 2 ] * ijk[ 0 ] + cartDims_[ 0 ] * ijk[ 1 ];
+                globalIdMap[ globalId ] = index;
+            }
+            */
 
-            for( int d=0; d<dimension; ++d )
-                cartDims_[ d ] = cpgrid.logicalCartesianSize()[ d ];
+            std::vector< int > ordering;
+            ordering.reserve( globalIdMap.size() );
+
+            index = 0;
+            for( auto it = globalIdMap.begin(), end = globalIdMap.end(); it != end; ++it, ++index )
+            {
+                //std::cout << "ord[ " << index << " ] = " << (*it).second << std::endl;
+                ordering.push_back( (*it).second );
+            }
+
+            // create Grid from CpGrid
+            Grid& grid = *( factory.convert( cpgrid, ordering ) );
 
             // compute cartesian dimensions
             grid.comm().max( &cartDims_[ 0 ], dimension );

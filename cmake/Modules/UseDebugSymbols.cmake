@@ -67,11 +67,11 @@ function (strip_debug_symbols targets)
 	  endif ("${_kind}" STREQUAL "STATIC_LIBRARY")	  
 
 	  # don't strip public symbols in shared objects
-	  if ("${_kind}" STREQUAL "EXECUTABLE")
-		set (_strip_args "--strip-all")
-	  else ("${_kind}" STREQUAL "EXECUTABLE")
-		set (_strip_args "--strip-debug")
-	  endif ("${_kind}" STREQUAL "EXECUTABLE")
+    #if ("${_kind}" STREQUAL "EXECUTABLE")
+    #set (_strip_args "--strip-all")
+    #else ("${_kind}" STREQUAL "EXECUTABLE")
+    #set (_strip_args "--strip-debug")
+    #endif ("${_kind}" STREQUAL "EXECUTABLE")
 	  
 	  # add_custom_command doesn't support generator expressions in the
 	  # working_directory argument (sic; that's what you get when you do
