@@ -92,7 +92,7 @@ namespace Opm
         typedef Dune::Fem::DGAdaptiveLeafGridPart< Grid > GridPart;
         typedef typename GridPart :: GridViewType         GridView;
         typedef Dune::Fem::FunctionSpace< double, double, dimension, 1 >    FunctionSpace;
-        typedef Dune::Fem::FiniteVolumeSpace< FunctionSpace, GridPart, 0 /* codim */ >  FiniteVolumeSpace;
+        typedef Dune::Fem::FiniteVolumeSpace< FunctionSpace, GridPart, /* codim = */ 0 >  FiniteVolumeSpace;
         typedef Dune::Fem::AdaptiveDiscreteFunction< FiniteVolumeSpace >    DiscreteFunction;
 
         typedef Dune::Fem::CombinedSpace< FiniteVolumeSpace, 3, Dune::Fem::VariableBased >  VectorSpaceType;
@@ -300,11 +300,11 @@ namespace Opm
         }
 
         SystemMatrixAdapterType matrixAdapter( SystemMatrixType& matrix ) {
-            //typedef Dune::Fem::FemSeqILU0< Matrix, typename Matrix::RowBlockVectorType,
-            //                                       typename Matrix::ColBlockVectorType > PreconditionerType;
-            //Dune::Fem::PreconditionerWrapper< Matrix > precon( matrix, 0, 1.0, (PreconditionerType *) 0 );
-            typedef typename SystemMatrixAdapterType :: PreconditionAdapterType  PreConType;
-            return SystemMatrixAdapterType( matrix, vectorSpace_, vectorSpace_, PreConType() );
+            typedef Dune::Fem::FemSeqILU0< SystemMatrixType, typename SystemMatrixType::RowBlockVectorType,
+                                                             typename SystemMatrixType::ColBlockVectorType > PreconditionerType;
+            typename SystemMatrixAdapterType::PreconditionAdapterType
+                precon( matrix, 0, 1.0, (PreconditionerType *) 0 );
+            return SystemMatrixAdapterType( matrix, vectorSpace_, vectorSpace_, precon );
         }
 
         void gather( const SimulatorState& localState )
