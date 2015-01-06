@@ -119,8 +119,10 @@ namespace Opm
         : grid_( grid ),
           iterations_( 0 )
     {
-        use_amg_ = param.getDefault("cpr_use_amg", false);
-        use_bicgstab_ = param.getDefault("cpr_use_bicgstab", true);
+        cpr_relax_        = param.getDefault("cpr_relax", 1.0);
+        cpr_ilu_n_        = param.getDefault("cpr_ilu_n", 0);
+        cpr_use_amg_      = param.getDefault("cpr_use_amg", false);
+        cpr_use_bicgstab_ = param.getDefault("cpr_use_bicgstab", true);
     }
 
 
@@ -213,11 +215,17 @@ namespace Opm
         x = 0.0;
 
         // Construct preconditioner.
+<<<<<<< HEAD
         typedef Dune::SeqILU0<Mat,Vector,Vector> Preconditioner;
         //typedef Opm::CPRPreconditioner<Mat,Vector,Vector> Preconditioner;
         const double relax = 1.0;
         Preconditioner precond(istlA, relax );
         //Preconditioner precond(istlA, istlAe, relax, use_amg_, use_bicgstab_);
+=======
+        // typedef Dune::SeqILU0<Mat,Vector,Vector> Preconditioner;
+        typedef Opm::CPRPreconditioner<Mat,Vector,Vector> Preconditioner;
+        Preconditioner precond(istlA, istlAe, cpr_relax_, cpr_ilu_n_, cpr_use_amg_, cpr_use_bicgstab_);
+>>>>>>> upstream/master
 
         // Construct linear solver.
         const double tolerance = 1e-3;
@@ -286,7 +294,7 @@ namespace Opm
 #endif
             M id(Jn[n].rows(), Jn[n].cols());
             id.setIdentity();
-            const M Di = solver.solve(id);
+            const Eigen::SparseMatrix<M::Scalar, Eigen::ColMajor> Di = solver.solve(id);
 
             // compute inv(D)*bn for the update of the right hand side
             const Eigen::VectorXd& Dibn = solver.solve(eqs[n].value().matrix());
@@ -305,7 +313,9 @@ namespace Opm
                     continue;
                 }
                 // solve Du = C
-                const M u = Di * Jn[var]; // solver.solve(Jn[var]);
+                // const M u = Di * Jn[var]; // solver.solve(Jn[var]);
+                M u;
+                fastSparseProduct(Di, Jn[var], u); // solver.solve(Jn[var]);
                 for (int eq = 0; eq < num_eq; ++eq) {
                     if (eq == n) {
                         continue;
@@ -318,7 +328,9 @@ namespace Opm
                     jacs[eq].push_back(Je[var]);
                     M& J = jacs[eq].back();
                     // Subtract Bu (B*inv(D)*C)
-                    J -= B * u;
+                    M Bu;
+                    fastSparseProduct(B, u, Bu);
+                    J -= Bu;
                 }
             }
 
@@ -423,6 +435,7 @@ namespace Opm
         void formEllipticSystem(const int num_phases,
                                 const std::vector<ADB>& eqs_in,
                                 Eigen::SparseMatrix<double, Eigen::RowMajor>& A,
+                                // M& A,
                                 V& b)
         {
             if (num_phases != 3) {

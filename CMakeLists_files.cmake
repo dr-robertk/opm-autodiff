@@ -99,6 +99,7 @@ list (APPEND PUBLIC_HEADER_FILES
 	opm/autodiff/BlackoilPropsAdInterface.hpp
 	opm/autodiff/CPRPreconditioner.hpp
 	opm/autodiff/DuneGrid.hpp
+	opm/autodiff/fastSparseProduct.hpp
 	opm/autodiff/DuneMatrix.hpp
 	opm/autodiff/GeoProps.hpp
 	opm/autodiff/GridHelpers.hpp

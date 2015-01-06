@@ -212,7 +212,7 @@ void initOPMTrans(TransGraph& opmTrans , DeckConstPtr deck , std::shared_ptr<con
     std::shared_ptr<BlackoilPropsAdInterface> props;
 
     props.reset(new BlackoilPropsAdFromDeck(deck, eclipseState, *grid->c_grid()));
-    DerivedGeology geology(*grid->c_grid() , *props, eclipseState);
+    DerivedGeology geology(*grid->c_grid() , *props, eclipseState, false);
     const double * opm_trans_data = geology.transmissibility().data();
     double SIconversion = Opm::unit::cubic(Opm::unit::meter) * Opm::unit::day * Opm::unit::barsa / (Opm::prefix::centi * Opm::unit::Poise);
     
@@ -345,7 +345,7 @@ int main(int argc, char** argv) {
     ParserPtr parser(new Parser());
 
     std::cout << "Parsing input file ............: " << input_file << std::endl;
-    DeckConstPtr deck = parser->parseFile(input_file, false);
+    DeckConstPtr deck = parser->parseFile(input_file);
     std::shared_ptr<EclipseState> state = std::make_shared<EclipseState>( deck );
     
     std::cout << "Loading eclipse INIT file .....: " << init_file << std::endl;
