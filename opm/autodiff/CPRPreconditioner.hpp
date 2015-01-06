@@ -82,12 +82,7 @@ namespace Opm
         typedef Dune::Preconditioner<X,X> WholeSystemPreconditioner;
 
         //! \brief ilu-0 preconditioner for the elliptic system
-<<<<<<< HEAD
-        typedef Dune::SeqILU0<M,X,X> Preconditioner;
-        //typedef Dune::SeqJac<M,X,X> Preconditioner;
-=======
         typedef Dune::SeqILU0<M,X,X> EllipticPreconditioner;
->>>>>>> upstream/master
 
         //! \brief amg preconditioner for the elliptic system
         typedef EllipticPreconditioner Smoother;
@@ -283,12 +278,7 @@ namespace Opm
               amg_ = std::unique_ptr< AMG > (new AMG(opAe_, criterion, smootherArgs));
             }
             else
-<<<<<<< HEAD
-              //precond_ = std::unique_ptr< Preconditioner > (new Preconditioner( Ae_, 1, relax_ ));
-              precond_ = std::unique_ptr< Preconditioner > (new Preconditioner( Ae_, relax_ ));
-=======
               precond_ = std::unique_ptr< EllipticPreconditioner > (new EllipticPreconditioner( Ae_, relax_ ));
->>>>>>> upstream/master
        }
     };
 

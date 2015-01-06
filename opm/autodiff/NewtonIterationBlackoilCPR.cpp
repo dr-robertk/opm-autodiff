@@ -215,17 +215,11 @@ namespace Opm
         x = 0.0;
 
         // Construct preconditioner.
-<<<<<<< HEAD
         typedef Dune::SeqILU0<Mat,Vector,Vector> Preconditioner;
         //typedef Opm::CPRPreconditioner<Mat,Vector,Vector> Preconditioner;
         const double relax = 1.0;
         Preconditioner precond(istlA, relax );
         //Preconditioner precond(istlA, istlAe, relax, use_amg_, use_bicgstab_);
-=======
-        // typedef Dune::SeqILU0<Mat,Vector,Vector> Preconditioner;
-        typedef Opm::CPRPreconditioner<Mat,Vector,Vector> Preconditioner;
-        Preconditioner precond(istlA, istlAe, cpr_relax_, cpr_ilu_n_, cpr_use_amg_, cpr_use_bicgstab_);
->>>>>>> upstream/master
 
         // Construct linear solver.
         const double tolerance = 1e-3;
