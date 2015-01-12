@@ -69,8 +69,6 @@
 #if HAVE_DUNE_ALUGRID
 #include <dune/alugrid/dgf.hh>
 #include <dune/alugrid/common/fromtogridfactory.hh>
-#else
-#error This header needs the dune-alugrid module
 #endif
 
 #include <opm/autodiff/NewtonIterationBlackoilCPR.cpp>
@@ -144,7 +142,12 @@ try
     }
 
     // create a grid (powered by DUNE::Grid)
+#if HAVE_DUNE_ALUGRID
     typedef Dune :: ALUGrid< 3, 3, Dune::cube, Dune::nonconforming > GridImpl;
+#else
+    typedef Dune::CpGrid GridImpl;
+#endif
+
     typedef Opm::DuneGrid< GridImpl > Grid;
     Grid grid( deck, porv );
 

@@ -178,14 +178,16 @@ namespace Opm
         // Solve reduced system.
         SolutionVector dx(SolutionVector::Zero(b.size()));
 
+        /*
         // Create ISTL matrix.
         typename Grid :: SystemMatrixType istlA( A );
 
         // Construct operator, scalar product and vectors needed.
         typedef typename Grid :: SystemMatrixAdapterType Operator;
         Operator opA( grid_.matrixAdapter( istlA ) );
+        */
 
-        //DuneMatrix istlA( A );
+        DuneMatrix istlA( A );
         //grid_.matrixAdapter( istlA );
 
         // Create ISTL matrix for elliptic part.
@@ -203,8 +205,8 @@ namespace Opm
         //std::abort();
 
         // Construct operator, scalar product and vectors needed.
-        //typedef Dune::MatrixAdapter<Mat,Vector,Vector> Operator;
-        //Operator opA(istlA);
+        typedef Dune::MatrixAdapter<Mat,Vector,Vector> Operator;
+        Operator opA(istlA);
         Dune::SeqScalarProduct<Vector> sp;
 
         // Right hand side.
@@ -215,20 +217,19 @@ namespace Opm
         x = 0.0;
 
         // Construct preconditioner.
-        typedef Dune::SeqILU0<Mat,Vector,Vector> Preconditioner;
-        //typedef Opm::CPRPreconditioner<Mat,Vector,Vector> Preconditioner;
-        const double relax = 1.0;
-        Preconditioner precond(istlA, relax );
-        //Preconditioner precond(istlA, istlAe, relax, use_amg_, use_bicgstab_);
+        //typedef Dune::SeqILU0<Mat,Vector,Vector> Preconditioner;
+        typedef Opm::CPRPreconditioner<Mat,Vector,Vector> Preconditioner;
+        //Preconditioner precond(istlA, relax );
+        Preconditioner precond(istlA, istlAe, cpr_relax_, cpr_ilu_n_, cpr_use_amg_, cpr_use_bicgstab_);
 
         // Construct linear solver.
         const double tolerance = 1e-3;
         const int maxit = 150;
         const int verbosity = 0; // (grid_.comm().rank() == 0) ? 1 : 0;
         const int restart = 40;
-        Dune::RestartedGMResSolver< Vector > linsolve(opA, opA.scp(), opA.preconditionAdapter(),
+        //Dune::RestartedGMResSolver< Vector > linsolve(opA, opA.scp(), opA.preconditionAdapter(),
         //Dune::RestartedGMResSolver< Vector > linsolve(opA, opA.scp(), precond,
-        //Dune::RestartedGMResSolver< Vector > linsolve(opA, sp, precond,
+        Dune::RestartedGMResSolver< Vector > linsolve(opA, sp, precond,
                                                       tolerance, restart, maxit, verbosity);
 
         // Solve system.

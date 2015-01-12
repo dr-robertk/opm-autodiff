@@ -30,13 +30,12 @@
 #error This header needs the dune-cornerpoint module
 #endif
 
-#if HAVE_DUNE_ALUGRID
 #include <dune/grid/common/datahandleif.hh>
+#include <dune/grid/io/file/vtk/vtkwriter.hh>
+
+#if HAVE_DUNE_ALUGRID
 #include <dune/alugrid/grid.hh>
 #include <dune/alugrid/common/fromtogridfactory.hh>
-#include <dune/grid/io/file/vtk/vtkwriter.hh>
-#else
-#error This header needs the dune-alugrid module
 #endif
 
 #if HAVE_DUNE_FEM
@@ -59,6 +58,7 @@ namespace Opm
         typedef DomainSpace DomainSpaceType ;
         typedef RangeSpace  RangeSpaceType ;
 
+#if HAVE_DUNE_FEM
         typedef Dune::Fem::ISTLBlockVectorDiscreteFunction< DomainSpaceType > RowDiscreteFunctionType ;
         typedef Dune::Fem::ISTLBlockVectorDiscreteFunction< RangeSpaceType  > ColDiscreteFunctionType ;
 
@@ -67,6 +67,7 @@ namespace Opm
 
         typedef typename RowDiscreteFunctionType :: GridType :: Traits ::
             CollectiveCommunication  CollectiveCommunictionType;
+#endif
 
         IstlMatrix( const Eigen::SparseMatrix<double, Eigen::RowMajor>& matrix )
             : BaseType( matrix )
@@ -87,10 +88,17 @@ namespace Opm
         typedef typename Grid :: Traits :: template Codim< dimension > :: Entity         Vertex;
         typedef typename Grid :: Traits :: template Codim< dimension > :: EntityPointer  VertexPointer;
 
+#if HAVE_DUNE_FEM
         typedef Dune::Fem::AdaptiveLeafGridPart< Grid >   AllGridPart;
-
+        typedef typename AllGridPart :: GridViewType      AllGridView;
         typedef Dune::Fem::DGAdaptiveLeafGridPart< Grid > GridPart;
         typedef typename GridPart :: GridViewType         GridView;
+#else
+        typedef typename Grid :: LeafGridView             GridView;
+        typedef GridView                                  AllGridView;
+#endif
+
+#if HAVE_DUNE_FEM
         typedef Dune::Fem::FunctionSpace< double, double, dimension, 1 >    FunctionSpace;
         typedef Dune::Fem::FiniteVolumeSpace< FunctionSpace, GridPart, /* codim = */ 0 >  FiniteVolumeSpace;
         typedef Dune::Fem::AdaptiveDiscreteFunction< FiniteVolumeSpace >    DiscreteFunction;
@@ -108,6 +116,7 @@ namespace Opm
 
         typedef Dune::Fem::DGParallelMatrixAdapter< SystemMatrixType >   SystemMatrixAdapterType;
         typedef Dune::Fem::DGParallelMatrixAdapter< EllipticMatrixType > EllipticMatrixAdapterType;
+#endif
 
         typedef typename Element :: Geometry                    ElementGeometry ;
         typedef typename ElementGeometry :: GlobalCoordinate    GlobalCoordinate;
@@ -168,20 +177,33 @@ namespace Opm
             }
         };
 
-        Grid* createDuneGrid( Opm::DeckConstPtr deck, const std::vector<double>& porv )
+        struct FaceKey : public std::pair< int, int >
+        {
+            typedef std::pair< int, int > BaseType;
+            FaceKey() : BaseType(-1,-1) {}
+            FaceKey( const int inside, const int outside )
+                : BaseType( inside < outside ? std::make_pair(inside,outside) : std::make_pair(outside,inside) )
+            {}
+        };
+
+        Grid* createDuneGrid( Opm::DeckConstPtr deck, const std::vector<double>& porv, const bool isCpGrid = false )
         {
             if( porv.size() > 0 )
                 OPM_THROW(std::runtime_error,"PORV not yet supported by DuneGrid");
 
-            Dune::CpGrid cpgrid;
+            std::unique_ptr< Dune::CpGrid > cpgrid;
+            cpgrid.reset( new Dune::CpGrid() );
+
             // create CpGrid from deck
-            cpgrid.processEclipseFormat(deck, 0.0, false, false);
+            cpgrid->processEclipseFormat(deck, 0.0, false, false);
 
             for( int d=0; d<dimension; ++d )
-                cartDims_[ d ] = cpgrid.logicalCartesianSize()[ d ];
+                cartDims_[ d ] = cpgrid->logicalCartesianSize()[ d ];
 
             // grid factory converting a grid
+#if HAVE_DUNE_ALUGRID
             Dune::FromToGridFactory< Grid > factory;
+#endif
 
             // store global cartesian index of cell
             std::map< int, int > globalIdMap ;
@@ -212,7 +234,11 @@ namespace Opm
             }
 
             // create Grid from CpGrid
-            Grid& grid = *( factory.convert( cpgrid, ordering ) );
+#if HAVE_DUNE_ALUGRID
+            Grid& grid = *( factory.convert( *cpgrid, ordering ) );
+#else
+            Grid& grid = *cpgrid;
+#endif
 
             // compute cartesian dimensions
             grid.comm().max( &cartDims_[ 0 ], dimension );
@@ -220,16 +246,25 @@ namespace Opm
             globalIndex_.reset( new GlobalIndexContainer( grid, /* codim = */ 0 ) );
             globalIndex_->resize();
 
+#if HAVE_DUNE_FEM
             AllGridPart gridPart( grid );
+            AllGridView gridView = gridPart.gridView();
+#else
+            AllGridView gridView = grid.leafGridView();
+#endif
 
             // store global cartesian index of cell
-            typedef typename AllGridPart :: template Codim< 0 > :: IteratorType Iterator;
-            const Iterator end = gridPart.template end<0> ();
+            typedef typename AllGridView :: template Codim< 0 > :: Iterator Iterator;
+            const Iterator end = gridView.template end<0> ();
             int count = 0;
-            for( Iterator it = gridPart.template begin<0> (); it != end; ++it, ++count )
+            const bool orderingEmpty = ordering.empty();
+            for( Iterator it = gridView.template begin<0> (); it != end; ++it, ++count )
             {
                 const Element& element = *it;
-                (*globalIndex_)[ element ] = cpgrid.globalCell()[ ordering[ count ] ];
+                if( orderingEmpty )
+                    (*globalIndex_)[ element ] = cpgrid->globalCell()[ count ];
+                else
+                    (*globalIndex_)[ element ] = cpgrid->globalCell()[ ordering[ count ] ];
             }
 
             // create data handle to distribute the global cartesian index
@@ -238,18 +273,30 @@ namespace Opm
             // partition grid
             grid.loadBalance( dh );
             // communicate non-interior cells values
-            gridPart.communicate( dh, Dune::InteriorBorder_All_Interface, Dune::ForwardCommunication );
-            // return grid pointer
+            gridView.communicate( dh, Dune::InteriorBorder_All_Interface, Dune::ForwardCommunication );
+
+#if ! HAVE_DUNE_ALUGRID
+            cpgrid.release();
+#endif
             return &grid;
         }
 
         DuneGrid(Opm::DeckConstPtr deck, const std::vector<double>& porv )
             : grid_( createDuneGrid( deck, porv ) ),
+#if HAVE_DUNE_FEM
               allGridPart_( grid() ),
               gridPart_( grid() ),
               singleSpace_( gridPart_ ),
               vectorSpace_( gridPart_ ),
-              ug_( dune2UnstructuredGrid( allGridPart_.gridView(), globalIndex(), cartDims_, true ) )
+#endif
+              ug_( dune2UnstructuredGrid(
+#if HAVE_DUNE_FEM
+                          allGridPart_.gridView(),
+#else
+                          grid().leafGridView(),
+#endif
+                          globalIndex(), cartDims_, true )
+                 )
         {
             //printCurve( *grid_ );
 
@@ -272,7 +319,11 @@ namespace Opm
         Grid& grid() { return *grid_; }
         const Grid& grid() const { return *grid_; }
 
+#if HAVE_DUNE_FEM
         GridView gridView () const { return gridPart_.gridView(); }
+#else
+        GridView gridView () const { return grid().leafGridView(); }
+#endif
 
         const GlobalIndexContainer globalIndex() const { return *globalIndex_; }
 
@@ -286,6 +337,7 @@ namespace Opm
 
         const CollectiveCommunication& comm() const { return grid_->comm(); }
 
+#if HAVE_DUNE_FEM
         void communicate( SimulatorState& state ) const
         {
             if( singleSpace_.size() != state.pressure().size()  )
@@ -311,6 +363,7 @@ namespace Opm
         {
             // gather solution to rank 0 for EclipseWriter
         }
+#endif
 
         template <class GridView>
         UnstructuredGrid*
@@ -319,7 +372,8 @@ namespace Opm
                                const int cartDims[ dimension ],
                                const bool faceTags )
         {
-            typedef typename Grid :: ctype ctype;
+            typedef double ctype;
+            //typename Grid :: ctype ctype;
             typedef typename GridView :: template Codim< 0 > :: template Partition<
                 Dune :: All_Partition > :: Iterator Iterator;
             typedef typename GridView :: IntersectionIterator      IntersectionIterator;
@@ -330,11 +384,44 @@ namespace Opm
             const IndexSet& indexSet = gridView.indexSet();
 
             const int numCells = indexSet.size( 0 );
-            const int numFaces = indexSet.size( 1 );
             const int numNodes = indexSet.size( dimension );
 
             const int maxNumVerticesPerFace = 4;
             const int maxNumFacesPerCell    = 6;
+
+            int maxFaceIdx = indexSet.size( 1 );
+            const bool validFaceIndexSet = maxFaceIdx > 0;
+
+            std::map< FaceKey, int > faceIndexSet;
+
+            if( ! validFaceIndexSet )
+            {
+                maxFaceIdx = 0;
+                const Iterator end = gridView.template end<0, Dune::All_Partition> ();
+                for( Iterator it = gridView.template begin<0, Dune::All_Partition> (); it != end; ++it )
+                {
+                    const Element& element = *it;
+                    const int elIndex = indexSet.index( element );
+                    const IntersectionIterator endiit = gridView.iend( element );
+                    for( IntersectionIterator iit = gridView.ibegin( element ); iit != endiit; ++iit)
+                    {
+                        const Intersection& intersection = *iit;
+                        int nbIndex = -1;
+                        // store face --> cell relation
+                        if( intersection.neighbor() )
+                        {
+                            ElementPointer ep = intersection.outside();
+                            const Element& neighbor = *ep;
+                            nbIndex = indexSet.index( neighbor );
+                        }
+
+                        FaceKey faceKey( elIndex, nbIndex );
+                        if( faceIndexSet.find( faceKey ) == faceIndexSet.end() )
+                            faceIndexSet[ faceKey ] = maxFaceIdx++;
+                    }
+                }
+            }
+            const int numFaces = maxFaceIdx ;
 
             // create Unstructured grid struct
             UnstructuredGrid* ug = allocate_grid( dimension, numCells, numFaces,
@@ -354,7 +441,7 @@ namespace Opm
 
             int count = 0;
             int cellFace = 0;
-            int maxFaceIdx = 0;
+            maxFaceIdx = 0;
             const Iterator end = gridView.template end<0, Dune::All_Partition> ();
             for( Iterator it = gridView.template begin<0, Dune::All_Partition> (); it != end; ++it, ++count )
             {
@@ -365,7 +452,7 @@ namespace Opm
                 // assert( element.type().isHexahedron() );
 
                 const int elIndex = indexSet.index( element );
-                assert( gridPart_.indexSet().index( element ) == elIndex );
+                assert( indexSet.index( element ) == elIndex );
 
                 const bool isGhost = element.partitionType() != Dune :: InteriorEntity ;
 
@@ -395,8 +482,12 @@ namespace Opm
 
                 ug->cell_facepos[ elIndex ] = cellFace;
 
+                Dune::GeometryType geomType = element.type();
+                if( geomType.isNone() )
+                    geomType = Dune::GeometryType( Dune::GeometryType::cube, dimension );
+
                 const Dune::ReferenceElement< ctype, dimension > &refElem
-                        = Dune::ReferenceElements< ctype, dimension >::general( element.type() );
+                        = Dune::ReferenceElements< ctype, dimension >::general( geomType );
 
                 int faceCount = 0;
                 const IntersectionIterator endiit = gridView.iend( element );
@@ -408,7 +499,22 @@ namespace Opm
 
                     const int localFace = intersection.indexInInside();
                     const int localFaceIdx = isGhost ? 0 : localFace;
-                    const int faceIndex = indexSet.subIndex( element, localFace, 1 );
+
+                    int faceIndex = validFaceIndexSet ? indexSet.subIndex( element, localFace, 1 ) : -1;
+                    if( ! validFaceIndexSet )
+                    {
+                        int nbIndex = -1;
+                        if( intersection.neighbor() )
+                        {
+                            ElementPointer ep = intersection.outside();
+                            const Element& neighbor = *ep;
+
+                            nbIndex = indexSet.index( neighbor );
+                        }
+                        FaceKey faceKey( elIndex, nbIndex );
+                        faceIndex = faceIndexSet[ faceKey ];
+                    }
+
                     maxFaceIdx = std::max( faceIndex, maxFaceIdx );
 
                     ug->face_areas[ faceIndex ] = faceVol;
@@ -492,10 +598,12 @@ namespace Opm
     protected:
         std::unique_ptr< GlobalIndexContainer > globalIndex_;
         std::unique_ptr< Grid > grid_;
+#if HAVE_DUNE_FEM
         AllGridPart allGridPart_;
         GridPart gridPart_;
         FiniteVolumeSpace singleSpace_;
         VectorSpaceType   vectorSpace_;
+#endif
         std::unique_ptr< UnstructuredGrid > ug_;
         int cartDims_[ dimension ];
     };
