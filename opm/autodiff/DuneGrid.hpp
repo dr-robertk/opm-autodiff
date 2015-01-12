@@ -200,10 +200,13 @@ namespace Opm
             for( int d=0; d<dimension; ++d )
                 cartDims_[ d ] = cpgrid->logicalCartesianSize()[ d ];
 
+            std::vector< int > ordering;
+
             // grid factory converting a grid
+            const std::vector< int >& globalCell = cpgrid->globalCell();
+
 #if HAVE_DUNE_ALUGRID
             Dune::FromToGridFactory< Grid > factory;
-#endif
 
             // store global cartesian index of cell
             std::map< int, int > globalIdMap ;
@@ -223,7 +226,6 @@ namespace Opm
             }
             */
 
-            std::vector< int > ordering;
             ordering.reserve( globalIdMap.size() );
 
             index = 0;
@@ -234,17 +236,10 @@ namespace Opm
             }
 
             // create Grid from CpGrid
-#if HAVE_DUNE_ALUGRID
             Grid& grid = *( factory.convert( *cpgrid, ordering ) );
 #else
-            Grid& grid = *cpgrid;
+            Grid& grid = *(cpgrid.release());
 #endif
-
-            // compute cartesian dimensions
-            grid.comm().max( &cartDims_[ 0 ], dimension );
-
-            globalIndex_.reset( new GlobalIndexContainer( grid, /* codim = */ 0 ) );
-            globalIndex_->resize();
 
 #if HAVE_DUNE_FEM
             AllGridPart gridPart( grid );
@@ -252,19 +247,40 @@ namespace Opm
 #else
             AllGridView gridView = grid.leafGridView();
 #endif
+            computeGlobalIndex( gridView, grid, globalCell, ordering );
+
+            return &grid;
+       }
+
+       template <class GridView>
+       void computeGlobalIndex( const GridView& gridView,
+                                Grid& grid,
+                                const std::vector<int>& globalCell,
+                                const std::vector<int>& ordering = std::vector<int>() )
+       {
+            // compute cartesian dimensions for all cores
+            grid.comm().max( &cartDims_[ 0 ], dimension );
+
+            globalIndex_.reset( new GlobalIndexContainer( grid, /* codim = */ 0 ) );
+            globalIndex_->resize();
 
             // store global cartesian index of cell
-            typedef typename AllGridView :: template Codim< 0 > :: Iterator Iterator;
+            typedef typename GridView :: template Codim< 0 > :: Iterator Iterator;
             const Iterator end = gridView.template end<0> ();
             int count = 0;
-            const bool orderingEmpty = ordering.empty();
-            for( Iterator it = gridView.template begin<0> (); it != end; ++it, ++count )
+            if( ordering.empty() )
             {
-                const Element& element = *it;
-                if( orderingEmpty )
-                    (*globalIndex_)[ element ] = cpgrid->globalCell()[ count ];
-                else
-                    (*globalIndex_)[ element ] = cpgrid->globalCell()[ ordering[ count ] ];
+                for( Iterator it = gridView.template begin<0> (); it != end; ++it, ++count )
+                {
+                    (*globalIndex_)[ *it ] = globalCell[ count ];
+                }
+            }
+            else
+            {
+                for( Iterator it = gridView.template begin<0> (); it != end; ++it, ++count )
+                {
+                    (*globalIndex_)[ *it ] = globalCell[ ordering[ count ] ];
+                }
             }
 
             // create data handle to distribute the global cartesian index
@@ -274,11 +290,6 @@ namespace Opm
             grid.loadBalance( dh );
             // communicate non-interior cells values
             gridView.communicate( dh, Dune::InteriorBorder_All_Interface, Dune::ForwardCommunication );
-
-#if ! HAVE_DUNE_ALUGRID
-            cpgrid.release();
-#endif
-            return &grid;
         }
 
         DuneGrid(Opm::DeckConstPtr deck, const std::vector<double>& porv )
