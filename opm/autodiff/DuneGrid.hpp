@@ -61,7 +61,7 @@ namespace Opm
 
         struct CreateLeafGridView
         {
-            GridView createGridView( Grid& grid ) const
+            GridView operator ()( Grid& grid ) const
             {
                 return grid.leafGridView();
             }
@@ -159,9 +159,9 @@ namespace Opm
             Dune::FromToGridFactory< Grid > factory;
 
             // store global cartesian index of cell
+            /*
             std::map< int, int > globalIdMap ;
             int index = 0;
-            /*
             for( auto it  = cpgrid.leafGridView().template begin<0>(),
                       end = cpgrid.leafGridView().template end<0>  (); it != end; ++it, ++index )
             {
@@ -192,7 +192,8 @@ namespace Opm
 #else
             Grid* grid = cpgrid.release();
 #endif
-            computeGlobalIndex( createGridView( *grid ), *grid, globalCell, ordering );
+            auto gridView = createGridView( *grid );
+            computeGlobalIndex( gridView, *grid, globalCell, ordering );
 
             return grid;
         }

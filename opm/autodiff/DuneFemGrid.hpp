@@ -112,7 +112,7 @@ namespace Opm
         struct CreateGridPart
         {
             mutable std::unique_ptr< AllGridPart > gridPart_;
-            AllGridView createGridView( Grid& grid ) const
+            AllGridView operator ()( Grid& grid ) const
             {
                 if( ! gridPart_ )
                     gridPart_.reset( new AllGridPart( grid ) );
