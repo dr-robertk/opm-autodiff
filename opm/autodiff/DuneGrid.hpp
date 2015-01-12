@@ -27,7 +27,7 @@
 #if HAVE_DUNE_CORNERPOINT
 #include <dune/grid/CpGrid.hpp>
 #else
-#error This header needs the dune-cornerpoint module
+#error "This header needs the dune-cornerpoint module"
 #endif
 
 #include <dune/grid/common/datahandleif.hh>
@@ -38,42 +38,8 @@
 #include <dune/alugrid/common/fromtogridfactory.hh>
 #endif
 
-#if HAVE_DUNE_FEM
-#include <dune/fem/gridpart/adaptiveleafgridpart.hh>
-#include <dune/fem/space/finitevolume.hh>
-#include <dune/fem/function/adaptivefunction.hh>
-#include <dune/fem/function/blockvectorfunction.hh>
-#include <dune/fem/function/combinedfunction.hh>
-#include <dune/fem/operator/matrix/istlmatrixadapter.hh>
-#include <dune/fem/operator/matrix/preconditionerwrapper.hh>
-#endif
-
 namespace Opm
 {
-    template <class DomainSpace, class RangeSpace = DomainSpace >
-    class IstlMatrix : public DuneMatrix
-    {
-    public:
-        typedef DuneMatrix  BaseType;
-        typedef DomainSpace DomainSpaceType ;
-        typedef RangeSpace  RangeSpaceType ;
-
-#if HAVE_DUNE_FEM
-        typedef Dune::Fem::ISTLBlockVectorDiscreteFunction< DomainSpaceType > RowDiscreteFunctionType ;
-        typedef Dune::Fem::ISTLBlockVectorDiscreteFunction< RangeSpaceType  > ColDiscreteFunctionType ;
-
-        typedef typename RowDiscreteFunctionType :: DofStorageType  RowBlockVectorType;
-        typedef typename ColDiscreteFunctionType :: DofStorageType  ColBlockVectorType;
-
-        typedef typename RowDiscreteFunctionType :: GridType :: Traits ::
-            CollectiveCommunication  CollectiveCommunictionType;
-#endif
-
-        IstlMatrix( const Eigen::SparseMatrix<double, Eigen::RowMajor>& matrix )
-            : BaseType( matrix )
-        {}
-    };
-
     template <class GridImpl>
     class DuneGrid
     {
@@ -88,38 +54,19 @@ namespace Opm
         typedef typename Grid :: Traits :: template Codim< dimension > :: Entity         Vertex;
         typedef typename Grid :: Traits :: template Codim< dimension > :: EntityPointer  VertexPointer;
 
-#if HAVE_DUNE_FEM
-        typedef Dune::Fem::AdaptiveLeafGridPart< Grid >   AllGridPart;
-        typedef typename AllGridPart :: GridViewType      AllGridView;
-        typedef Dune::Fem::DGAdaptiveLeafGridPart< Grid > GridPart;
-        typedef typename GridPart :: GridViewType         GridView;
-#else
-        typedef typename Grid :: LeafGridView             GridView;
-        typedef GridView                                  AllGridView;
-#endif
-
-#if HAVE_DUNE_FEM
-        typedef Dune::Fem::FunctionSpace< double, double, dimension, 1 >    FunctionSpace;
-        typedef Dune::Fem::FiniteVolumeSpace< FunctionSpace, GridPart, /* codim = */ 0 >  FiniteVolumeSpace;
-        typedef Dune::Fem::AdaptiveDiscreteFunction< FiniteVolumeSpace >    DiscreteFunction;
-
-        typedef Dune::Fem::CombinedSpace< FiniteVolumeSpace, 3, Dune::Fem::VariableBased >  VectorSpaceType;
-
-        typedef Dune::Fem::ISTLBlockVectorDiscreteFunction< FiniteVolumeSpace >  ISTLDiscreteFunction;
-        typedef Dune::Fem::ISTLBlockVectorDiscreteFunction< VectorSpaceType   >  ISTLVectorDiscreteFunction;
-
-        // we can only deal with block size 1 at the moment
-        static_assert( ISTLVectorDiscreteFunction::localBlockSize == 1, "blocksize error" );
-
-        typedef IstlMatrix< VectorSpaceType   > SystemMatrixType;
-        typedef IstlMatrix< FiniteVolumeSpace > EllipticMatrixType;
-
-        typedef Dune::Fem::DGParallelMatrixAdapter< SystemMatrixType >   SystemMatrixAdapterType;
-        typedef Dune::Fem::DGParallelMatrixAdapter< EllipticMatrixType > EllipticMatrixAdapterType;
-#endif
+        typedef typename Grid :: LeafGridView   GridView;
 
         typedef typename Element :: Geometry                    ElementGeometry ;
         typedef typename ElementGeometry :: GlobalCoordinate    GlobalCoordinate;
+
+        struct CreateLeafGridView
+        {
+            GridView createGridView( Grid& grid ) const
+            {
+                return grid.leafGridView();
+            }
+        };
+
 
         class GlobalCellIndex
         {
@@ -186,7 +133,10 @@ namespace Opm
             {}
         };
 
-        Grid* createDuneGrid( Opm::DeckConstPtr deck, const std::vector<double>& porv, const bool isCpGrid = false )
+        template <class CreateGridView>
+        Grid* createDuneGrid( Opm::DeckConstPtr deck,
+                              const std::vector<double>& porv,
+                              const CreateGridView& createGridView )
         {
             if( porv.size() > 0 )
                 OPM_THROW(std::runtime_error,"PORV not yet supported by DuneGrid");
@@ -226,6 +176,7 @@ namespace Opm
             }
             */
 
+            /*
             ordering.reserve( globalIdMap.size() );
 
             index = 0;
@@ -234,30 +185,25 @@ namespace Opm
                 //std::cout << "ord[ " << index << " ] = " << (*it).second << std::endl;
                 ordering.push_back( (*it).second );
             }
+            */
 
             // create Grid from CpGrid
-            Grid& grid = *( factory.convert( *cpgrid, ordering ) );
+            Grid* grid = factory.convert( *cpgrid, ordering );
 #else
-            Grid& grid = *(cpgrid.release());
+            Grid* grid = cpgrid.release();
 #endif
+            computeGlobalIndex( createGridView( *grid ), *grid, globalCell, ordering );
 
-#if HAVE_DUNE_FEM
-            AllGridPart gridPart( grid );
-            AllGridView gridView = gridPart.gridView();
-#else
-            AllGridView gridView = grid.leafGridView();
-#endif
-            computeGlobalIndex( gridView, grid, globalCell, ordering );
+            return grid;
+        }
 
-            return &grid;
-       }
 
-       template <class GridView>
-       void computeGlobalIndex( const GridView& gridView,
-                                Grid& grid,
-                                const std::vector<int>& globalCell,
-                                const std::vector<int>& ordering = std::vector<int>() )
-       {
+        template <class GridView>
+        void computeGlobalIndex( const GridView& gridView,
+                                 Grid& grid,
+                                 const std::vector<int>& globalCell,
+                                 const std::vector<int>& ordering = std::vector<int>() )
+        {
             // compute cartesian dimensions for all cores
             grid.comm().max( &cartDims_[ 0 ], dimension );
 
@@ -292,22 +238,11 @@ namespace Opm
             gridView.communicate( dh, Dune::InteriorBorder_All_Interface, Dune::ForwardCommunication );
         }
 
+        DuneGrid() {}
+
         DuneGrid(Opm::DeckConstPtr deck, const std::vector<double>& porv )
-            : grid_( createDuneGrid( deck, porv ) ),
-#if HAVE_DUNE_FEM
-              allGridPart_( grid() ),
-              gridPart_( grid() ),
-              singleSpace_( gridPart_ ),
-              vectorSpace_( gridPart_ ),
-#endif
-              ug_( dune2UnstructuredGrid(
-#if HAVE_DUNE_FEM
-                          allGridPart_.gridView(),
-#else
-                          grid().leafGridView(),
-#endif
-                          globalIndex(), cartDims_, true )
-                 )
+            : grid_( createDuneGrid( deck, porv, CreateLeafGridView() ) ),
+              ug_( dune2UnstructuredGrid( grid().leafGridView(), globalIndex(), cartDims_, true ) )
         {
             //printCurve( *grid_ );
 
@@ -330,11 +265,7 @@ namespace Opm
         Grid& grid() { return *grid_; }
         const Grid& grid() const { return *grid_; }
 
-#if HAVE_DUNE_FEM
-        GridView gridView () const { return gridPart_.gridView(); }
-#else
         GridView gridView () const { return grid().leafGridView(); }
-#endif
 
         const GlobalIndexContainer globalIndex() const { return *globalIndex_; }
 
@@ -347,34 +278,6 @@ namespace Opm
         const UnstructuredGrid& c_grid() const { return *ug_; }
 
         const CollectiveCommunication& comm() const { return grid_->comm(); }
-
-#if HAVE_DUNE_FEM
-        void communicate( SimulatorState& state ) const
-        {
-            if( singleSpace_.size() != state.pressure().size()  )
-                std::cout << singleSpace_.size() << " " << state.pressure().size() << std::endl;
-            assert( singleSpace_.size() == state.pressure().size() );
-            DiscreteFunction p( "pressure", singleSpace_, &state.pressure()[0] );
-            p.communicate();
-            DiscreteFunction sat( "sat", singleSpace_, &state.saturation()[0] );
-            sat.communicate();
-            DiscreteFunction sat2( "sat2", singleSpace_, &state.saturation()[ singleSpace_.size() ] );
-            sat2.communicate();
-        }
-
-        SystemMatrixAdapterType matrixAdapter( SystemMatrixType& matrix ) {
-            typedef Dune::Fem::FemSeqILU0< SystemMatrixType, typename SystemMatrixType::RowBlockVectorType,
-                                                             typename SystemMatrixType::ColBlockVectorType > PreconditionerType;
-            typename SystemMatrixAdapterType::PreconditionAdapterType
-                precon( matrix, 0, 1.0, (PreconditionerType *) 0 );
-            return SystemMatrixAdapterType( matrix, vectorSpace_, vectorSpace_, precon );
-        }
-
-        void gather( const SimulatorState& localState )
-        {
-            // gather solution to rank 0 for EclipseWriter
-        }
-#endif
 
         template <class GridView>
         UnstructuredGrid*
@@ -609,12 +512,6 @@ namespace Opm
     protected:
         std::unique_ptr< GlobalIndexContainer > globalIndex_;
         std::unique_ptr< Grid > grid_;
-#if HAVE_DUNE_FEM
-        AllGridPart allGridPart_;
-        GridPart gridPart_;
-        FiniteVolumeSpace singleSpace_;
-        VectorSpaceType   vectorSpace_;
-#endif
         std::unique_ptr< UnstructuredGrid > ug_;
         int cartDims_[ dimension ];
     };

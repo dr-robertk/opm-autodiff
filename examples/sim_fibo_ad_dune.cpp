@@ -18,10 +18,6 @@
 */
 #include "config.h"
 
-#if HAVE_MPI
-#warning "Using MPI"
-#endif
-
 #include <opm/autodiff/DuneGrid.hpp>
 
 #include <opm/core/pressure/FlowBCManager.hpp>
@@ -66,11 +62,6 @@
 #include <vector>
 #include <numeric>
 
-#if HAVE_DUNE_ALUGRID
-#include <dune/alugrid/dgf.hh>
-#include <dune/alugrid/common/fromtogridfactory.hh>
-#endif
-
 #include <opm/autodiff/NewtonIterationBlackoilCPR.cpp>
 #include <opm/autodiff/PrintCurve.hpp>
 
@@ -93,11 +84,7 @@ int
 main(int argc, char** argv)
 try
 {
-#if HAVE_DUNE_FEM
-    Dune::Fem::MPIManager::initialize( argc, argv );
-#else
     Dune::MPIHelper::instance( argc, argv );
-#endif
 
     using namespace Opm;
 
