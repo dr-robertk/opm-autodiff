@@ -36,6 +36,7 @@
 #endif
 
 #include <opm/autodiff/DuneGrid.hpp>
+#include <opm/autodiff/DuneFemGrid.hpp>
 
 #include <opm/core/utility/platform_dependent/reenable_warnings.h>
 
@@ -105,7 +106,7 @@ const double* endCellVolumes(const UnstructuredGrid& grid);
 /// \brief extracts the internal faces of a grid.
 /// \param[in] The grid whose internal faces we query.
 /// \param[out] internal_faces The internal faces.
-/// \param[out] nbi 
+/// \param[out] nbi
 void extractInternalFaces(const UnstructuredGrid& grid,
                           Eigen::Array<int, Eigen::Dynamic, 1>& internal_faces,
                           Eigen::Array<int, Eigen::Dynamic, 2, Eigen::RowMajor>& nbi);
@@ -123,7 +124,7 @@ namespace AutoDiffGrid
 {
 /// \brief A proxy class representing a row of FaceCellsContainer.
 class FaceCellsProxy
-{    
+{
 public:
     /// \brief Constructor.
     /// \param grid The grid whose face to cell mapping we represent.
@@ -147,7 +148,7 @@ class FaceCellsContainerProxy
 {
 public:
     typedef FaceCellsProxy row_type;
-    
+
     /// \brief Constructor.
     /// \param grid The grid whose information we represent.
     FaceCellsContainerProxy(const Dune::CpGrid* grid)
@@ -212,12 +213,12 @@ public:
         {
             return index_==o.index_;
         }
-        
+
     private:
         const Dune::cpgrid::OrientedEntityTable<0,1>::row_type* row_;
         int index_;
     };
-    
+
     typedef iterator const_iterator;
 
     Cell2FacesRow(const Dune::cpgrid::OrientedEntityTable<0,1>::row_type row)
@@ -233,7 +234,7 @@ public:
     {
         return const_iterator(&row_, row_.size());
     }
-    
+
 private:
     const Dune::cpgrid::OrientedEntityTable<0,1>::row_type row_;
 };
@@ -242,16 +243,16 @@ class Cell2FacesContainer
 {
 public:
     typedef  Cell2FacesRow row_type;
-    
+
     Cell2FacesContainer(const Dune::CpGrid* grid)
         : grid_(grid)
     {};
-    
+
     Cell2FacesRow operator[](int cell_index) const
     {
         return Cell2FacesRow(grid_->cellFaceRow(cell_index));
     }
-    
+
         /// \brief Get the number of non-zero entries.
     std::size_t noEntries() const
     {
@@ -311,7 +312,7 @@ public:
     {
         return o.grid_==grid_ && o.cell_index_==cell_index_;
     }
-    
+
 private:
     const Dune::CpGrid* grid_;
     int cell_index_;
@@ -459,7 +460,7 @@ public:
     {
         return o.grid_==grid_ && o.cell_index_==cell_index_;
     }
-    
+
 private:
     const Dune::CpGrid* grid_;
     int cell_index_;
@@ -480,7 +481,7 @@ CellVolumeIterator endCellVolumes(const Dune::CpGrid& grid);
 /// \brief extracts the internal faces of a grid.
 /// \param[in] The grid whose internal faces we query.
 /// \param[out] internal_faces The internal faces.
-/// \param[out] nbi 
+/// \param[out] nbi
 void extractInternalFaces(const Dune::CpGrid& grid,
                           Eigen::Array<int, Eigen::Dynamic, 1>& internal_faces,
                           Eigen::Array<int, Eigen::Dynamic, 2, Eigen::RowMajor>& nbi);
@@ -521,10 +522,17 @@ struct ADFaceCellTraits<UnstructuredGrid>
     typedef Eigen::Array<int, Eigen::Dynamic, 2, Eigen::RowMajor> Type;
 };
 
-// derive from ADFaceCellTraits< UnstructuredGrid > since 
+// derive from ADFaceCellTraits< UnstructuredGrid > since
 // DuneGrid casts into UnstructuredGrid
 template<class G>
 struct ADFaceCellTraits<DuneGrid< G > > : public ADFaceCellTraits< UnstructuredGrid >
+{
+};
+
+// derive from ADFaceCellTraits< UnstructuredGrid > since
+// DuneGrid casts into UnstructuredGrid
+template<class G>
+struct ADFaceCellTraits<DuneFemGrid< G > > : public ADFaceCellTraits< UnstructuredGrid >
 {
 };
 

@@ -137,7 +137,7 @@ namespace Opm
         };
 
         //! empty constructor
-        DuneGrid() {}
+        explicit DuneGrid( Grid* grid ) : grid_( grid ) {}
 
         //! constructor taking Eclipse deck and pore volumes
         DuneGrid(Opm::DeckConstPtr deck, const std::vector<double>& porv )

@@ -16,8 +16,8 @@
   You should have received a copy of the GNU General Public License
   along with OPM.  If not, see <http://www.gnu.org/licenses/>.
 */
-#ifndef OPM_DUNEGRID_HEADER_INCLUDED
-#define OPM_DUNEGRID_HEADER_INCLUDED
+#ifndef OPM_DUNEFEMGRID_HEADER_INCLUDED
+#define OPM_DUNEFEMGRID_HEADER_INCLUDED
 
 #include <opm/core/grid.h>
 #include <opm/core/simulator/SimulatorState.hpp>
@@ -112,6 +112,7 @@ namespace Opm
         struct CreateGridPart
         {
             mutable std::unique_ptr< AllGridPart > gridPart_;
+            CreateGridPart() : gridPart_() {}
             AllGridView operator ()( Grid& grid ) const
             {
                 if( ! gridPart_ )
@@ -124,12 +125,13 @@ namespace Opm
         using BaseType :: ug_;
         using BaseType :: grid;
         using BaseType :: cartDims_;
-        using BaseType :: globalIndex_;
+        using BaseType :: globalIndex;
+        using BaseType :: createDuneGrid;
+        using BaseType :: dune2UnstructuredGrid;
 
-        DuneFemGrid(Opm::DeckConstPtr deck, const std::vector<double>& porv )
+        DuneFemGrid(Opm::DeckConstPtr deck, const std::vector<double>& poreVolumes )
 #if HAVE_DUNE_FEM
-            : BaseType()
-              grid_( createDuneGrid( deck, porv, CreateGridPart() ) ),
+            : BaseType( createDuneGrid( deck, poreVolumes, CreateGridPart() ) ),
               allGridPart_( grid() ),
               gridPart_( grid() ),
               singleSpace_( gridPart_ ),
@@ -139,7 +141,7 @@ namespace Opm
 #endif
         {
 #if HAVE_DUNE_FEM
-            ug_.reset( dune2UnstructuredGrid( allGridPart_.gridView(), globalIndex(), cartDims_, true ) )
+            ug_.reset( dune2UnstructuredGrid( allGridPart_.gridView(), globalIndex(), cartDims_, true ) );
 #endif
         }
 
