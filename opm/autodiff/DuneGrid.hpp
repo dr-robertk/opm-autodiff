@@ -68,6 +68,7 @@ namespace Opm
         };
 
 
+        // global id
         class GlobalCellIndex
         {
             int idx_;
@@ -79,6 +80,7 @@ namespace Opm
 
         typedef typename Dune::PersistentContainer< Grid, GlobalCellIndex > GlobalIndexContainer;
 
+        // data handle for communicating global ids during load balance and communication
         class DataHandle : public Dune::CommDataHandleIF< DataHandle, int >
         {
             GlobalIndexContainer& globalIndex_;
@@ -124,6 +126,7 @@ namespace Opm
             }
         };
 
+        // key for generating intersection index
         struct FaceKey : public std::pair< int, int >
         {
             typedef std::pair< int, int > BaseType;
