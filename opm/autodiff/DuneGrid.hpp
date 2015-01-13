@@ -68,6 +68,7 @@ namespace Opm
         };
 
 
+        // global id
         class GlobalCellIndex
         {
             int idx_;
@@ -79,6 +80,7 @@ namespace Opm
 
         typedef typename Dune::PersistentContainer< Grid, GlobalCellIndex > GlobalIndexContainer;
 
+        // data handle for communicating global ids during load balance and communication
         class DataHandle : public Dune::CommDataHandleIF< DataHandle, int >
         {
             GlobalIndexContainer& globalIndex_;
@@ -124,6 +126,7 @@ namespace Opm
             }
         };
 
+        // key for generating intersection index
         struct FaceKey : public std::pair< int, int >
         {
             typedef std::pair< int, int > BaseType;
@@ -133,114 +136,10 @@ namespace Opm
             {}
         };
 
-        template <class CreateGridView>
-        Grid* createDuneGrid( Opm::DeckConstPtr deck,
-                              const std::vector<double>& porv,
-                              const CreateGridView& createGridView )
-        {
-            if( porv.size() > 0 )
-                OPM_THROW(std::runtime_error,"PORV not yet supported by DuneGrid");
-
-            std::unique_ptr< Dune::CpGrid > cpgrid;
-            cpgrid.reset( new Dune::CpGrid() );
-
-            // create CpGrid from deck
-            cpgrid->processEclipseFormat(deck, 0.0, false, false);
-
-            for( int d=0; d<dimension; ++d )
-                cartDims_[ d ] = cpgrid->logicalCartesianSize()[ d ];
-
-            std::vector< int > ordering;
-
-            // grid factory converting a grid
-            const std::vector< int >& globalCell = cpgrid->globalCell();
-
-#if HAVE_DUNE_ALUGRID
-            Dune::FromToGridFactory< Grid > factory;
-
-            // store global cartesian index of cell
-            /*
-            std::map< int, int > globalIdMap ;
-            int index = 0;
-            for( auto it  = cpgrid.leafGridView().template begin<0>(),
-                      end = cpgrid.leafGridView().template end<0>  (); it != end; ++it, ++index )
-            {
-                std::array<int,3> ijk;
-                cpgrid.getIJK( index, ijk );
-                const int globalId = ijk[ 0 ] + cartDims_[ 0 ] * ijk[ 1 ] + cartDims_[ 1 ] * cartDims_[ 0 ] * ijk[ 2 ];
-                //const int globalId = ijk[ 1 ] + cartDims_[ 1 ] * ijk[ 2 ] + cartDims_[ 2 ] * cartDims_[ 1 ] * ijk[ 0 ];
-                if( globalIdMap.find( globalId ) != globalIdMap.end() )
-                    std::cout << "GlobalId not unique" << std::endl;
-                //const int globalId = ijk[ 2 ] + cartDims_[ 2 ] * ijk[ 0 ] + cartDims_[ 0 ] * ijk[ 1 ];
-                globalIdMap[ globalId ] = index;
-            }
-            */
-
-            /*
-            ordering.reserve( globalIdMap.size() );
-
-            index = 0;
-            for( auto it = globalIdMap.begin(), end = globalIdMap.end(); it != end; ++it, ++index )
-            {
-                //std::cout << "ord[ " << index << " ] = " << (*it).second << std::endl;
-                ordering.push_back( (*it).second );
-            }
-            */
-
-            // create Grid from CpGrid
-            Grid* grid = factory.convert( *cpgrid, ordering );
-#else
-            Grid* grid = cpgrid.release();
-#endif
-            auto gridView = createGridView( *grid );
-            computeGlobalIndex( gridView, *grid, globalCell, ordering );
-
-            return grid;
-        }
-
-
-        template <class GridView>
-        void computeGlobalIndex( const GridView& gridView,
-                                 Grid& grid,
-                                 const std::vector<int>& globalCell,
-                                 const std::vector<int>& ordering = std::vector<int>() )
-        {
-            // compute cartesian dimensions for all cores
-            grid.comm().max( &cartDims_[ 0 ], dimension );
-
-            globalIndex_.reset( new GlobalIndexContainer( grid, /* codim = */ 0 ) );
-            globalIndex_->resize();
-
-            // store global cartesian index of cell
-            typedef typename GridView :: template Codim< 0 > :: Iterator Iterator;
-            const Iterator end = gridView.template end<0> ();
-            int count = 0;
-            if( ordering.empty() )
-            {
-                for( Iterator it = gridView.template begin<0> (); it != end; ++it, ++count )
-                {
-                    (*globalIndex_)[ *it ] = globalCell[ count ];
-                }
-            }
-            else
-            {
-                for( Iterator it = gridView.template begin<0> (); it != end; ++it, ++count )
-                {
-                    (*globalIndex_)[ *it ] = globalCell[ ordering[ count ] ];
-                }
-            }
-
-            // create data handle to distribute the global cartesian index
-            DataHandle dh( *globalIndex_ );
-
-            // partition grid
-            grid.loadBalance( dh );
-            // communicate non-interior cells values
-            gridView.communicate( dh, Dune::InteriorBorder_All_Interface, Dune::ForwardCommunication );
-        }
-
+        //! empty constructor
         DuneGrid() {}
 
+        //! constructor taking Eclipse deck and pore volumes
         DuneGrid(Opm::DeckConstPtr deck, const std::vector<double>& porv )
             : grid_( createDuneGrid( deck, porv, CreateLeafGridView() ) ),
               ug_( dune2UnstructuredGrid( grid().leafGridView(), globalIndex(), cartDims_, true ) )
@@ -266,9 +165,8 @@ namespace Opm
         Grid& grid() { return *grid_; }
         const Grid& grid() const { return *grid_; }
 
+        //! underlying DUNE grid view
         GridView gridView () const { return grid().leafGridView(); }
-
-        const GlobalIndexContainer globalIndex() const { return *globalIndex_; }
 
         // cast operators for UnstructuredGrid
         operator const UnstructuredGrid& () const { return *ug_; }
@@ -278,243 +176,383 @@ namespace Opm
         UnstructuredGrid &      c_grid()       { return *ug_; }
         const UnstructuredGrid& c_grid() const { return *ug_; }
 
+        //! DUNE's collective communication object
         const CollectiveCommunication& comm() const { return grid_->comm(); }
 
-        template <class GridView>
-        UnstructuredGrid*
-        dune2UnstructuredGrid( const GridView& gridView,
+    protected:
+        // return global id container
+        const GlobalIndexContainer globalIndex() const { return *globalIndex_; }
+
+        // create the DUNE grid
+        template <class CreateGridView>
+        inline Grid* createDuneGrid( Opm::DeckConstPtr deck,
+                                     const std::vector<double>& poreVolumes,
+                                     const CreateGridView& createGridView );
+
+        // compute the global id for each cell
+        template <class GV>
+        inline void computeGlobalIndex( const GV& gridView,
+                                        Grid& grid,
+                                        const std::vector<int>& globalCell,
+                                        const std::vector<int>& ordering );
+
+        // convert grid view into UnstructuredGrid struct
+        template <class GV>
+        inline UnstructuredGrid*
+        dune2UnstructuredGrid( const GV& gridView,
                                const GlobalIndexContainer& globalIndex,
                                const int cartDims[ dimension ],
-                               const bool faceTags )
-        {
-            typedef double ctype;
-            //typename Grid :: ctype ctype;
-            typedef typename GridView :: template Codim< 0 > :: template Partition<
-                Dune :: All_Partition > :: Iterator Iterator;
-            typedef typename GridView :: IntersectionIterator      IntersectionIterator;
-            typedef typename IntersectionIterator :: Intersection  Intersection;
-            typedef typename Intersection :: Geometry              IntersectionGeometry;
-            typedef typename GridView :: IndexSet                  IndexSet;
+                               const bool faceTags );
 
-            const IndexSet& indexSet = gridView.indexSet();
-
-            const int numCells = indexSet.size( 0 );
-            const int numNodes = indexSet.size( dimension );
-
-            const int maxNumVerticesPerFace = 4;
-            const int maxNumFacesPerCell    = 6;
-
-            int maxFaceIdx = indexSet.size( 1 );
-            const bool validFaceIndexSet = maxFaceIdx > 0;
-
-            std::map< FaceKey, int > faceIndexSet;
-
-            if( ! validFaceIndexSet )
-            {
-                maxFaceIdx = 0;
-                const Iterator end = gridView.template end<0, Dune::All_Partition> ();
-                for( Iterator it = gridView.template begin<0, Dune::All_Partition> (); it != end; ++it )
-                {
-                    const Element& element = *it;
-                    const int elIndex = indexSet.index( element );
-                    const IntersectionIterator endiit = gridView.iend( element );
-                    for( IntersectionIterator iit = gridView.ibegin( element ); iit != endiit; ++iit)
-                    {
-                        const Intersection& intersection = *iit;
-                        int nbIndex = -1;
-                        // store face --> cell relation
-                        if( intersection.neighbor() )
-                        {
-                            ElementPointer ep = intersection.outside();
-                            const Element& neighbor = *ep;
-                            nbIndex = indexSet.index( neighbor );
-                        }
-
-                        FaceKey faceKey( elIndex, nbIndex );
-                        if( faceIndexSet.find( faceKey ) == faceIndexSet.end() )
-                            faceIndexSet[ faceKey ] = maxFaceIdx++;
-                    }
-                }
-            }
-            const int numFaces = maxFaceIdx ;
-
-            // create Unstructured grid struct
-            UnstructuredGrid* ug = allocate_grid( dimension, numCells, numFaces,
-                    numFaces*maxNumVerticesPerFace,
-                    numCells * maxNumFacesPerCell,
-                    numNodes );
-
-            std::fill( ug->face_cells, ug->face_cells+(numCells * maxNumFacesPerCell), -1 );
-
-            for( int d=0; d<dimension; ++d )
-              ug->cartdims[ d ] = cartDims_[ d ];
-
-            assert( ug->number_of_cells > 0 );
-            // allocate data structure for storage of cartesian index
-            if( ! ug->global_cell )
-                ug->global_cell = (int *) std::malloc( ug->number_of_cells * sizeof(int) );
-
-            int count = 0;
-            int cellFace = 0;
-            maxFaceIdx = 0;
-            const Iterator end = gridView.template end<0, Dune::All_Partition> ();
-            for( Iterator it = gridView.template begin<0, Dune::All_Partition> (); it != end; ++it, ++count )
-            {
-                const Element& element = *it;
-                const ElementGeometry geometry = element.geometry();
-
-                // currently only hexahedrons are supported
-                // assert( element.type().isHexahedron() );
-
-                const int elIndex = indexSet.index( element );
-                assert( indexSet.index( element ) == elIndex );
-
-                const bool isGhost = element.partitionType() != Dune :: InteriorEntity ;
-
-                // make sure that the elements are ordered as before,
-                // otherwise the globalCell mapping is invalid
-                assert( count == elIndex );
-
-                // store cartesian index
-                ug->global_cell[ elIndex ] = globalIndex[ element ].index();
-                //std::cout << "global index of cell " << elIndex << " = " <<
-                //    ug->global_cell[ elIndex ] << std::endl;
-
-                const GlobalCoordinate center = geometry.center();
-                int idx = elIndex * dimension;
-                for( int d=0; d<dimension; ++d, ++idx )
-                    ug->cell_centroids[ idx ] = center[ d ];
-                ug->cell_volumes[ elIndex ] = geometry.volume();
-
-                const int vertices = geometry.corners();
-                for( int vx=0; vx<vertices; ++vx )
-                {
-                    const GlobalCoordinate vertex = geometry.corner( vx );
-                    int idx = indexSet.subIndex( element, vx, dimension ) * dimension;
-                    for( int d=0; d<dimension; ++d, ++idx )
-                        ug->node_coordinates[ idx ] = vertex[ d ];
-                }
-
-                ug->cell_facepos[ elIndex ] = cellFace;
-
-                Dune::GeometryType geomType = element.type();
-                if( geomType.isNone() )
-                    geomType = Dune::GeometryType( Dune::GeometryType::cube, dimension );
-
-                const Dune::ReferenceElement< ctype, dimension > &refElem
-                        = Dune::ReferenceElements< ctype, dimension >::general( geomType );
-
-                int faceCount = 0;
-                const IntersectionIterator endiit = gridView.iend( element );
-                for( IntersectionIterator iit = gridView.ibegin( element ); iit != endiit; ++iit, ++faceCount )
-                {
-                    const Intersection& intersection = *iit;
-                    IntersectionGeometry intersectionGeometry = intersection.geometry();
-                    const double faceVol = intersectionGeometry.volume();
-
-                    const int localFace = intersection.indexInInside();
-                    const int localFaceIdx = isGhost ? 0 : localFace;
-
-                    int faceIndex = validFaceIndexSet ? indexSet.subIndex( element, localFace, 1 ) : -1;
-                    if( ! validFaceIndexSet )
-                    {
-                        int nbIndex = -1;
-                        if( intersection.neighbor() )
-                        {
-                            ElementPointer ep = intersection.outside();
-                            const Element& neighbor = *ep;
-
-                            nbIndex = indexSet.index( neighbor );
-                        }
-                        FaceKey faceKey( elIndex, nbIndex );
-                        faceIndex = faceIndexSet[ faceKey ];
-                    }
-
-                    maxFaceIdx = std::max( faceIndex, maxFaceIdx );
-
-                    ug->face_areas[ faceIndex ] = faceVol;
-
-                    // get number of vertices (should be 4)
-                    const int vxSize = refElem.size( localFace, 1, dimension );
-                    int faceIdx = faceIndex * maxNumVerticesPerFace ;
-                    ug->face_nodepos[ faceIndex   ] = faceIdx;
-                    ug->face_nodepos[ faceIndex+1 ] = faceIdx + maxNumVerticesPerFace;
-                    for( int vx=0; vx<vxSize; ++vx, ++faceIdx )
-                    {
-                        const int localVx = refElem.subEntity( localFace, 1, vx, dimension );
-                        const int vxIndex = indexSet.subIndex( element, localVx, dimension );
-                        ug->face_nodes[ faceIdx ] = vxIndex ;
-                    }
-
-                    assert( vxSize    <= maxNumVerticesPerFace );
-                    assert( localFace <  maxNumFacesPerCell );
-
-                    // store cell --> face relation
-                    ug->cell_faces  [ cellFace + localFaceIdx ] = faceIndex;
-                    if( faceTags )
-                    {
-                        // fill logical cartesian orientation of the face (here indexInInside)
-                        ug->cell_facetag[ cellFace + localFaceIdx ] = localFaceIdx;
-                    }
-
-                    GlobalCoordinate normal = intersection.centerUnitOuterNormal();
-                    normal *= faceVol;
-
-                    // store face --> cell relation
-                    if( intersection.neighbor() )
-                    {
-                        ElementPointer ep = intersection.outside();
-                        const Element& neighbor = *ep;
-
-                        const int nbIndex = indexSet.index( neighbor );
-                        if( elIndex < nbIndex )
-                        {
-                            ug->face_cells[ 2*faceIndex     ] = elIndex;
-                            ug->face_cells[ 2*faceIndex + 1 ] = nbIndex;
-                        }
-                        else
-                        {
-                            ug->face_cells[ 2*faceIndex     ] = nbIndex;
-                            ug->face_cells[ 2*faceIndex + 1 ] = elIndex;
-                            // flip normal
-                            normal *= -1.0;
-                        }
-                    }
-                    else // domain boundary
-                    {
-                        ug->face_cells[ 2*faceIndex     ] = elIndex;
-                        ug->face_cells[ 2*faceIndex + 1 ] = -1; // boundary
-                    }
-
-                    const GlobalCoordinate center = intersectionGeometry.center();
-                    // store normal
-                    int idx = faceIndex * dimension;
-                    for( int d=0; d<dimension; ++d, ++idx )
-                    {
-                        ug->face_normals  [ idx ] = normal[ d ];
-                        ug->face_centroids[ idx ] = center[ d ];
-                    }
-                }
-                if( faceCount > maxNumFacesPerCell )
-                    OPM_THROW(std::logic_error,"DuneGrid only supports conforming hexahedral currently");
-                cellFace += faceCount;
-            }
-
-            // set last entry
-            ug->cell_facepos[ numCells ] = cellFace;
-            // set number of faces found
-            ug->number_of_faces = maxFaceIdx+1;
-
-            std::cout << cellFace << " " << indexSet.size( 1 ) << " " << maxFaceIdx << std::endl;
-
-            return ug;
-        }
-
-    protected:
+        // protected member variables
         std::unique_ptr< GlobalIndexContainer > globalIndex_;
         std::unique_ptr< Grid > grid_;
         std::unique_ptr< UnstructuredGrid > ug_;
         int cartDims_[ dimension ];
     };
+
+    //////////////////////////////////////////////////////////////////////
+    //
+    //  Implementation
+    //
+    //////////////////////////////////////////////////////////////////////
+    template <class GridImpl>
+    template <class CreateGridView>
+    inline GridImpl*
+    DuneGrid<GridImpl>::createDuneGrid( Opm::DeckConstPtr deck,
+                                        const std::vector<double>& poreVolumes,
+                                        const CreateGridView& createGridView )
+    {
+        std::unique_ptr< Dune::CpGrid > cpgrid;
+        cpgrid.reset( new Dune::CpGrid() );
+
+        // create CpGrid from deck
+        cpgrid->processEclipseFormat(deck, false, false, false, poreVolumes );
+
+        for( int d=0; d<dimension; ++d )
+            cartDims_[ d ] = cpgrid->logicalCartesianSize()[ d ];
+
+        std::vector< int > ordering;
+
+        // grid factory converting a grid
+        const std::vector< int >& globalCell = cpgrid->globalCell();
+
+#if HAVE_DUNE_ALUGRID
+        Dune::FromToGridFactory< Grid > factory;
+
+        // store global cartesian index of cell
+        /*
+        std::map< int, int > globalIdMap ;
+        int index = 0;
+        for( auto it  = cpgrid.leafGridView().template begin<0>(),
+                  end = cpgrid.leafGridView().template end<0>  (); it != end; ++it, ++index )
+        {
+            std::array<int,3> ijk;
+            cpgrid.getIJK( index, ijk );
+            const int globalId = ijk[ 0 ] + cartDims_[ 0 ] * ijk[ 1 ] + cartDims_[ 1 ] * cartDims_[ 0 ] * ijk[ 2 ];
+            //const int globalId = ijk[ 1 ] + cartDims_[ 1 ] * ijk[ 2 ] + cartDims_[ 2 ] * cartDims_[ 1 ] * ijk[ 0 ];
+            if( globalIdMap.find( globalId ) != globalIdMap.end() )
+                std::cout << "GlobalId not unique" << std::endl;
+            //const int globalId = ijk[ 2 ] + cartDims_[ 2 ] * ijk[ 0 ] + cartDims_[ 0 ] * ijk[ 1 ];
+            globalIdMap[ globalId ] = index;
+        }
+        */
+
+        /*
+        ordering.reserve( globalIdMap.size() );
+
+        index = 0;
+        for( auto it = globalIdMap.begin(), end = globalIdMap.end(); it != end; ++it, ++index )
+        {
+            //std::cout << "ord[ " << index << " ] = " << (*it).second << std::endl;
+            ordering.push_back( (*it).second );
+        }
+        */
+
+        // create Grid from CpGrid
+        Grid* grid = factory.convert( *cpgrid, ordering );
+#else
+        Grid* grid = cpgrid.release();
+#endif
+        auto gridView = createGridView( *grid );
+        computeGlobalIndex( gridView, *grid, globalCell, ordering );
+
+        return grid;
+    }
+
+
+    template <class GridImpl>
+    template <class GV>
+    inline void
+    DuneGrid<GridImpl>::computeGlobalIndex( const GV& gridView,
+                                            Grid& grid,
+                                            const std::vector<int>& globalCell,
+                                            const std::vector<int>& ordering )
+    {
+        // compute cartesian dimensions for all cores
+        grid.comm().max( &cartDims_[ 0 ], dimension );
+
+        globalIndex_.reset( new GlobalIndexContainer( grid, /* codim = */ 0 ) );
+        globalIndex_->resize();
+
+        // store global cartesian index of cell
+        typedef typename GV :: template Codim< 0 > :: Iterator Iterator;
+        const Iterator end = gridView.template end<0> ();
+        int count = 0;
+        if( ordering.empty() )
+        {
+            for( Iterator it = gridView.template begin<0> (); it != end; ++it, ++count )
+            {
+                (*globalIndex_)[ *it ] = globalCell[ count ];
+            }
+        }
+        else
+        {
+            for( Iterator it = gridView.template begin<0> (); it != end; ++it, ++count )
+            {
+                assert( count < int(ordering.size()) );
+                (*globalIndex_)[ *it ] = globalCell[ ordering[ count ] ];
+            }
+        }
+
+        // create data handle to distribute the global cartesian index
+        DataHandle dh( *globalIndex_ );
+
+        // partition grid
+        grid.loadBalance( dh );
+        // communicate non-interior cells values
+        gridView.communicate( dh, Dune::InteriorBorder_All_Interface, Dune::ForwardCommunication );
+    }
+
+    template <class GridImpl>
+    template <class GV>
+    inline UnstructuredGrid*
+    DuneGrid<GridImpl>::dune2UnstructuredGrid( const GV& gridView,
+                                               const GlobalIndexContainer& globalIndex,
+                                               const int cartDims[ dimension ],
+                                               const bool faceTags )
+    {
+        typedef double ctype;
+        //typename Grid :: ctype ctype;
+        typedef typename GV :: template Codim< 0 > :: template Partition<
+            Dune :: All_Partition > :: Iterator Iterator;
+        typedef typename GV :: IntersectionIterator      IntersectionIterator;
+        typedef typename IntersectionIterator :: Intersection  Intersection;
+        typedef typename Intersection :: Geometry              IntersectionGeometry;
+        typedef typename GV :: IndexSet                  IndexSet;
+
+        const IndexSet& indexSet = gridView.indexSet();
+
+        const int numCells = indexSet.size( 0 );
+        const int numNodes = indexSet.size( dimension );
+
+        const int maxNumVerticesPerFace = 4;
+        const int maxNumFacesPerCell    = 6;
+
+        int maxFaceIdx = indexSet.size( 1 );
+        const bool validFaceIndexSet = maxFaceIdx > 0;
+
+        std::map< FaceKey, int > faceIndexSet;
+
+        if( ! validFaceIndexSet )
+        {
+            maxFaceIdx = 0;
+            const Iterator end = gridView.template end<0, Dune::All_Partition> ();
+            for( Iterator it = gridView.template begin<0, Dune::All_Partition> (); it != end; ++it )
+            {
+                const Element& element = *it;
+                const int elIndex = indexSet.index( element );
+                const IntersectionIterator endiit = gridView.iend( element );
+                for( IntersectionIterator iit = gridView.ibegin( element ); iit != endiit; ++iit)
+                {
+                    const Intersection& intersection = *iit;
+                    int nbIndex = -1;
+                    // store face --> cell relation
+                    if( intersection.neighbor() )
+                    {
+                        ElementPointer ep = intersection.outside();
+                        const Element& neighbor = *ep;
+                        nbIndex = indexSet.index( neighbor );
+                    }
+
+                    FaceKey faceKey( elIndex, nbIndex );
+                    if( faceIndexSet.find( faceKey ) == faceIndexSet.end() )
+                        faceIndexSet[ faceKey ] = maxFaceIdx++;
+                }
+            }
+        }
+        const int numFaces = maxFaceIdx ;
+
+        // create Unstructured grid struct
+        UnstructuredGrid* ug = allocate_grid( dimension, numCells, numFaces,
+                numFaces*maxNumVerticesPerFace,
+                numCells * maxNumFacesPerCell,
+                numNodes );
+
+        std::fill( ug->face_cells, ug->face_cells+(numCells * maxNumFacesPerCell), -1 );
+
+        for( int d=0; d<dimension; ++d )
+          ug->cartdims[ d ] = cartDims_[ d ];
+
+        assert( ug->number_of_cells > 0 );
+        // allocate data structure for storage of cartesian index
+        if( ! ug->global_cell )
+            ug->global_cell = (int *) std::malloc( ug->number_of_cells * sizeof(int) );
+
+        int count = 0;
+        int cellFace = 0;
+        maxFaceIdx = 0;
+        const Iterator end = gridView.template end<0, Dune::All_Partition> ();
+        for( Iterator it = gridView.template begin<0, Dune::All_Partition> (); it != end; ++it, ++count )
+        {
+            const Element& element = *it;
+            const ElementGeometry geometry = element.geometry();
+
+            // currently only hexahedrons are supported
+            // assert( element.type().isHexahedron() );
+
+            const int elIndex = indexSet.index( element );
+            assert( indexSet.index( element ) == elIndex );
+
+            const bool isGhost = element.partitionType() != Dune :: InteriorEntity ;
+
+            // make sure that the elements are ordered as before,
+            // otherwise the globalCell mapping is invalid
+            assert( count == elIndex );
+
+            // store cartesian index
+            ug->global_cell[ elIndex ] = globalIndex[ element ].index();
+            //std::cout << "global index of cell " << elIndex << " = " <<
+            //    ug->global_cell[ elIndex ] << std::endl;
+
+            const GlobalCoordinate center = geometry.center();
+            int idx = elIndex * dimension;
+            for( int d=0; d<dimension; ++d, ++idx )
+                ug->cell_centroids[ idx ] = center[ d ];
+            ug->cell_volumes[ elIndex ] = geometry.volume();
+
+            const int vertices = geometry.corners();
+            for( int vx=0; vx<vertices; ++vx )
+            {
+                const GlobalCoordinate vertex = geometry.corner( vx );
+                int idx = indexSet.subIndex( element, vx, dimension ) * dimension;
+                for( int d=0; d<dimension; ++d, ++idx )
+                    ug->node_coordinates[ idx ] = vertex[ d ];
+            }
+
+            ug->cell_facepos[ elIndex ] = cellFace;
+
+            Dune::GeometryType geomType = element.type();
+            if( geomType.isNone() )
+                geomType = Dune::GeometryType( Dune::GeometryType::cube, dimension );
+
+            const Dune::ReferenceElement< ctype, dimension > &refElem
+                    = Dune::ReferenceElements< ctype, dimension >::general( geomType );
+
+            int faceCount = 0;
+            const IntersectionIterator endiit = gridView.iend( element );
+            for( IntersectionIterator iit = gridView.ibegin( element ); iit != endiit; ++iit, ++faceCount )
+            {
+                const Intersection& intersection = *iit;
+                IntersectionGeometry intersectionGeometry = intersection.geometry();
+                const double faceVol = intersectionGeometry.volume();
+
+                const int localFace = intersection.indexInInside();
+                const int localFaceIdx = isGhost ? 0 : localFace;
+
+                int faceIndex = validFaceIndexSet ? indexSet.subIndex( element, localFace, 1 ) : -1;
+                if( ! validFaceIndexSet )
+                {
+                    int nbIndex = -1;
+                    if( intersection.neighbor() )
+                    {
+                        ElementPointer ep = intersection.outside();
+                        const Element& neighbor = *ep;
+
+                        nbIndex = indexSet.index( neighbor );
+                    }
+                    FaceKey faceKey( elIndex, nbIndex );
+                    faceIndex = faceIndexSet[ faceKey ];
+                }
+
+                maxFaceIdx = std::max( faceIndex, maxFaceIdx );
+
+                ug->face_areas[ faceIndex ] = faceVol;
+
+                // get number of vertices (should be 4)
+                const int vxSize = refElem.size( localFace, 1, dimension );
+                int faceIdx = faceIndex * maxNumVerticesPerFace ;
+                ug->face_nodepos[ faceIndex   ] = faceIdx;
+                ug->face_nodepos[ faceIndex+1 ] = faceIdx + maxNumVerticesPerFace;
+                for( int vx=0; vx<vxSize; ++vx, ++faceIdx )
+                {
+                    const int localVx = refElem.subEntity( localFace, 1, vx, dimension );
+                    const int vxIndex = indexSet.subIndex( element, localVx, dimension );
+                    ug->face_nodes[ faceIdx ] = vxIndex ;
+                }
+
+                assert( vxSize    <= maxNumVerticesPerFace );
+                assert( localFace <  maxNumFacesPerCell );
+
+                // store cell --> face relation
+                ug->cell_faces  [ cellFace + localFaceIdx ] = faceIndex;
+                if( faceTags )
+                {
+                    // fill logical cartesian orientation of the face (here indexInInside)
+                    ug->cell_facetag[ cellFace + localFaceIdx ] = localFaceIdx;
+                }
+
+                GlobalCoordinate normal = intersection.centerUnitOuterNormal();
+                normal *= faceVol;
+
+                // store face --> cell relation
+                if( intersection.neighbor() )
+                {
+                    ElementPointer ep = intersection.outside();
+                    const Element& neighbor = *ep;
+
+                    const int nbIndex = indexSet.index( neighbor );
+                    if( elIndex < nbIndex )
+                    {
+                        ug->face_cells[ 2*faceIndex     ] = elIndex;
+                        ug->face_cells[ 2*faceIndex + 1 ] = nbIndex;
+                    }
+                    else
+                    {
+                        ug->face_cells[ 2*faceIndex     ] = nbIndex;
+                        ug->face_cells[ 2*faceIndex + 1 ] = elIndex;
+                        // flip normal
+                        normal *= -1.0;
+                    }
+                }
+                else // domain boundary
+                {
+                    ug->face_cells[ 2*faceIndex     ] = elIndex;
+                    ug->face_cells[ 2*faceIndex + 1 ] = -1; // boundary
+                }
+
+                const GlobalCoordinate center = intersectionGeometry.center();
+                // store normal
+                int idx = faceIndex * dimension;
+                for( int d=0; d<dimension; ++d, ++idx )
+                {
+                    ug->face_normals  [ idx ] = normal[ d ];
+                    ug->face_centroids[ idx ] = center[ d ];
+                }
+            }
+            if( faceCount > maxNumFacesPerCell )
+                OPM_THROW(std::logic_error,"DuneGrid only supports conforming hexahedral currently");
+            cellFace += faceCount;
+        }
+
+        // set last entry
+        ug->cell_facepos[ numCells ] = cellFace;
+        // set number of faces found
+        ug->number_of_faces = maxFaceIdx+1;
+
+        // std::cout << cellFace << " " << indexSet.size( 1 ) << " " << maxFaceIdx << std::endl;
+        return ug;
+    }
+
 } // end namespace Opm
 #endif
