@@ -77,7 +77,7 @@ list (APPEND EXAMPLE_SOURCE_FILES
 	examples/sim_2p_comp_ad.cpp
 	examples/sim_2p_incomp_ad.cpp
 	examples/sim_simple.cpp
-        examples/opm_init_check.cpp     
+        examples/opm_init_check.cpp
 	)
 
 # programs listed here will not only be compiled, but also marked for
@@ -99,6 +99,7 @@ list (APPEND PUBLIC_HEADER_FILES
 	opm/autodiff/BlackoilPropsAdInterface.hpp
 	opm/autodiff/CPRPreconditioner.hpp
 	opm/autodiff/fastSparseProduct.hpp
+	opm/autodiff/DuneGrid.hpp
 	opm/autodiff/DuneMatrix.hpp
 	opm/autodiff/GeoProps.hpp
 	opm/autodiff/GridHelpers.hpp
