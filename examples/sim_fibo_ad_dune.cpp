@@ -18,7 +18,7 @@
 */
 #include "config.h"
 
-#include <opm/autodiff/DuneGrid.hpp>
+#include <opm/autodiff/DuneFemGrid.hpp>
 
 #include <opm/core/pressure/FlowBCManager.hpp>
 
@@ -135,7 +135,7 @@ try
     typedef Dune::CpGrid GridImpl;
 #endif
 
-    typedef Opm::DuneGrid< GridImpl > Grid;
+    typedef Opm::DuneFemGrid< GridImpl > Grid;
     Grid grid( deck, porv );
 
     //grid.reset(new GridManager(eclipseState->getEclipseGrid(), porv));

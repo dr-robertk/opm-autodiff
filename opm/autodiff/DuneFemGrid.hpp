@@ -21,6 +21,8 @@
 
 #include <opm/core/grid.h>
 #include <opm/core/simulator/SimulatorState.hpp>
+#include <opm/core/simulator/WellState.hpp>
+
 #include <opm/autodiff/DuneMatrix.hpp>
 
 // we need dune-cornerpoint for reading the Dune grid.
@@ -109,6 +111,11 @@ namespace Opm
         typedef Dune::Fem::DGParallelMatrixAdapter< EllipticMatrixType > EllipticMatrixAdapterType;
 #endif
 
+#if HAVE_DUNE_ALUGRID
+        typedef ALUGrid::MpAccessMPI   MpAccessType;
+        typedef ALUGrid::ObjectStream  MessageBufferType;
+#endif
+
         struct CreateGridPart
         {
             mutable std::unique_ptr< AllGridPart > gridPart_;
@@ -121,13 +128,13 @@ namespace Opm
             }
         };
 
-        using BaseType :: grid_;
         using BaseType :: ug_;
         using BaseType :: grid;
         using BaseType :: cartDims_;
         using BaseType :: globalIndex;
         using BaseType :: createDuneGrid;
         using BaseType :: dune2UnstructuredGrid;
+        using BaseType :: comm;
 
         DuneFemGrid(Opm::DeckConstPtr deck, const std::vector<double>& poreVolumes )
 #if HAVE_DUNE_FEM
@@ -135,13 +142,36 @@ namespace Opm
               allGridPart_( grid() ),
               gridPart_( grid() ),
               singleSpace_( gridPart_ ),
-              vectorSpace_( gridPart_ )
+              vectorSpace_( gridPart_ ),
+              toIORankComm_( comm() )
 #else
             : BaseType( deck, porv )
 #endif
         {
+
 #if HAVE_DUNE_FEM
             ug_.reset( dune2UnstructuredGrid( allGridPart_.gridView(), globalIndex(), cartDims_, true ) );
+
+            std::set< int > linkage;
+            const int ioRank = 0 ;
+            // rank 0 receives from all other ranks
+            if( comm().rank() == ioRank )
+            {
+                for(int i=0; i<comm().size(); ++i)
+                {
+                    if( i != ioRank )
+                    {
+                        linkage.insert( MpAccessType::recvRank( i ) );
+                    }
+                }
+            }
+            else // all other simply send to rank 0
+            {
+                linkage.insert( MpAccessType::sendRank( ioRank ) );
+            }
+
+            // insert linkage to communicator
+            toIORankComm_.insertRequestNonSymmetric( linkage );
 #endif
         }
 
@@ -173,9 +203,104 @@ namespace Opm
             return SystemMatrixAdapterType( matrix, vectorSpace_, vectorSpace_, precon );
         }
 
-        void gather( const SimulatorState& localState )
+        class PackUnPackSimulatorState : public MpAccessType::NonBlockingExchange::DataHandleIF
         {
-            // gather solution to rank 0 for EclipseWriter
+            const SimulatorState& localState_;
+            SimulatorState& globalState_;
+            const WellState& localWellState_;
+            WellState& globalWellState_;
+
+            typedef std::vector<int>  IndexMapType;
+
+            std::vector< IndexMapType > indexMap_;
+        public:
+            PackUnPackSimulatorState( const SimulatorState& localState,
+                                      SimulatorState& globalState,
+                                      const WellState& localWellState,
+                                      WellState& globalWellState )
+            : localState_( localState ),
+              globalState_( globalState ),
+              localWellState_( localWellState ),
+              globalWellState_( globalWellState )
+            {}
+
+            template <class Vector>
+            void write( MessageBufferType& buffer, const Vector& vector ) const
+            {
+                size_t size = vector.size();
+                buffer.write( size );
+                for( size_t i=0; i<size; ++i )
+                    buffer.write( vector[i] );
+            }
+
+            template <class IndexMap, class Vector>
+            void read( MessageBufferType& buffer,
+                       const IndexMap& indexMap,
+                       Vector& vector ) const
+            {
+                size_t size = 0;
+                buffer.read( size );
+                assert( size == indexMap.size() );
+                for( size_t i=0; i<size; ++i )
+                    buffer.read( vector[ indexMap[ i ] ] );
+            }
+
+            void pack( const int link, MessageBufferType& buffer )
+            {
+                // we should only get one link
+                assert( link == 0 );
+                // write all data from local state to buffer
+                write( buffer, localState_.pressure()     );
+                write( buffer, localState_.temperature()  );
+                write( buffer, localState_.facepressure() );
+                write( buffer, localState_.faceflux()     );
+                write( buffer, localState_.saturation()   );
+
+                // write all data from local well state to buffer
+                /*
+                write( buffer, localWellState_.bhp() );
+                write( buffer, localWellState_.temperature() );
+                write( buffer, localWellState_.wellRates() );
+                write( buffer, localWellState_.perfRates() );
+                write( buffer, localWellState_.perfPress() );
+                */
+            }
+
+            void unpack( const int link, MessageBufferType& buffer )
+            {
+                assert( isIORank() );
+                // get index map for current link
+                const IndexMapType& indexMap = indexMap_[ link ];
+
+                // write all data from local state to buffer
+                read( buffer, indexMap, globalState_.pressure()     );
+                read( buffer, indexMap, globalState_.temperature()  );
+                read( buffer, indexMap, globalState_.facepressure() );
+                read( buffer, indexMap, globalState_.faceflux()     );
+                read( buffer, indexMap, globalState_.saturation()   );
+
+                // TODO: well identification
+                /*
+                read( buffer, wellIndex, globalWellState_.bhp() );
+                read( buffer, wellIndex, globalWellState_.temperature() );
+                read( buffer, wellIndex, globalWellState_.wellRates() );
+                read( buffer, wellIndex, globalWellState_.perfRates() );
+                read( buffer, wellIndex, globalWellState_.perfPress() );
+                */
+            }
+        };
+
+        // gather solution to rank 0 for EclipseWriter
+        void collectToIORank( const SimulatorState& localState, const WellState& wellState )
+        {
+            PackUnPackSimulatorState packUnpack( localState, globalState_,
+                                                 wellState,  globalWellState_ );
+            toIORankComm_.exchange( packUnpack );
+        }
+
+        bool isIORank() const
+        {
+            return comm().rank() == 0;
         }
 #endif
 
@@ -185,7 +310,10 @@ namespace Opm
         GridPart gridPart_;
         FiniteVolumeSpace singleSpace_;
         VectorSpaceType   vectorSpace_;
+        MpAccessType toIORankComm_;
 #endif
+        SimulatorState globalState_;
+        WellState      globalWellState_;
     };
 } // end namespace Opm
 #endif
