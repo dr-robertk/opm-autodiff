@@ -139,13 +139,22 @@ namespace Opm
         };
 
         //! empty constructor
-        explicit DuneGrid( Grid* grid ) : grid_( grid ) {}
+        explicit DuneGrid( std::pair< Grid*, GlobalIndexContainer* > gridAndIdx )
+            : grid_( gridAndIdx.first ),
+              globalIndex_( gridAndIdx.second ) {}
 
         //! constructor taking Eclipse deck and pore volumes
         DuneGrid(Opm::DeckConstPtr deck, const std::vector<double>& porv )
-            : grid_( createDuneGrid( deck, porv, CreateLeafGridView(), true ) ),
-              ug_( dune2UnstructuredGrid( grid().leafGridView(), globalIndex(), cartDims_, true ) )
+           // : grid_( createDuneGrid( deck, porv, CreateLeafGridView(), true ). ),
+           //   ug_( dune2UnstructuredGrid( grid().leafGridView(), globalIndex(), cartDims_, true ) )
         {
+            std::pair< Grid*, GlobalIndexContainer* >
+                gridAndIdx( createDuneGrid( deck, porv, CreateLeafGridView(), true ) );
+            grid_.reset( gridAndIdx.first );
+            globalIndex_.reset( gridAndIdx.second );
+
+            ug_.reset( dune2UnstructuredGrid( grid().leafGridView(), globalIndex(), cartDims_, true ) );
+
             //printCurve( *grid_ );
 
             std::cout << "Created DuneGrid " << std::endl;
@@ -183,21 +192,21 @@ namespace Opm
 
     protected:
         // return global id container
-        const GlobalIndexContainer globalIndex() const { return *globalIndex_; }
+        const GlobalIndexContainer globalIndex() const { assert( globalIndex_ ); return *globalIndex_; }
 
         // create the DUNE grid
         template <class CreateGridView>
-        inline Grid* createDuneGrid( Opm::DeckConstPtr deck,
+        inline std::pair< Grid*, GlobalIndexContainer* > createDuneGrid( Opm::DeckConstPtr deck,
                                      const std::vector<double>& poreVolumes,
                                      const CreateGridView& createGridView,
                                      const bool distribute );
 
         // compute the global id for each cell
         template <class GV>
-        inline void computeGlobalIndex( const GV& gridView,
-                                        Grid& grid,
-                                        const std::vector<int>& globalCell,
-                                        const std::vector<int>& ordering );
+        inline GlobalIndexContainer* computeGlobalIndex( const GV& gridView,
+                                                         Grid& grid,
+                                                         const std::vector<int>& globalCell,
+                                                         const std::vector<int>& ordering );
 
         // convert grid view into UnstructuredGrid struct
         template <class GV>
@@ -208,13 +217,11 @@ namespace Opm
                                const bool faceTags );
 
         // compute the global id for each cell
-        template <class GV>
-        inline void distributeGrid( const GV& gridView,
-                                    Grid& grid );
+        inline void distributeGrid( Grid& grid );
 
         // protected member variables
-        std::unique_ptr< GlobalIndexContainer > globalIndex_;
         std::unique_ptr< Grid > grid_;
+        std::unique_ptr< GlobalIndexContainer > globalIndex_;
         std::unique_ptr< UnstructuredGrid > ug_;
         int cartDims_[ dimension ];
     };
@@ -226,7 +233,7 @@ namespace Opm
     //////////////////////////////////////////////////////////////////////
     template <class GridImpl>
     template <class CreateGridView>
-    inline GridImpl*
+    inline std::pair< GridImpl*, typename DuneGrid<GridImpl>::GlobalIndexContainer*>
     DuneGrid<GridImpl>::createDuneGrid( Opm::DeckConstPtr deck,
                                         const std::vector<double>& poreVolumes,
                                         const CreateGridView& createGridView,
@@ -284,21 +291,21 @@ namespace Opm
         Grid* grid = cpgrid.release();
 #endif
         auto gridView = createGridView( *grid );
-        computeGlobalIndex( gridView, *grid, globalCell, ordering );
+        GlobalIndexContainer* globalIds = computeGlobalIndex( gridView, *grid, globalCell, ordering );
 
         if( distribute )
         {
             // distribute among all processes
-            distributeGrid( gridView, *grid );
+            distributeGrid( *grid );
         }
 
-        return grid;
+        return std::make_pair( grid, globalIds );
     }
 
 
     template <class GridImpl>
     template <class GV>
-    inline void
+    inline typename DuneGrid<GridImpl>::GlobalIndexContainer*
     DuneGrid<GridImpl>::computeGlobalIndex( const GV& gridView,
                                             Grid& grid,
                                             const std::vector<int>& globalCell,
@@ -307,8 +314,8 @@ namespace Opm
         // compute cartesian dimensions for all cores
         grid.comm().max( &cartDims_[ 0 ], dimension );
 
-        globalIndex_.reset( new GlobalIndexContainer( grid, /* codim = */ 0 ) );
-        globalIndex_->resize();
+        GlobalIndexContainer& globalIds = *(new GlobalIndexContainer( grid, /* codim = */ 0 ) );
+        globalIds.resize();
 
         // store global cartesian index of cell
         typedef typename GV :: template Codim< 0 > :: Iterator Iterator;
@@ -318,7 +325,7 @@ namespace Opm
         {
             for( Iterator it = gridView.template begin<0> (); it != end; ++it, ++count )
             {
-                (*globalIndex_)[ *it ] = globalCell[ count ];
+                globalIds[ *it ] = globalCell[ count ];
             }
         }
         else
@@ -326,17 +333,20 @@ namespace Opm
             for( Iterator it = gridView.template begin<0> (); it != end; ++it, ++count )
             {
                 assert( count < int(ordering.size()) );
-                (*globalIndex_)[ *it ] = globalCell[ ordering[ count ] ];
+                globalIds[ *it ] = globalCell[ ordering[ count ] ];
             }
         }
+
+        return &globalIds;
     }
 
 
     template <class GridImpl>
-    template <class GV>
     inline void
-    DuneGrid<GridImpl>::distributeGrid ( const GV& gridView, Grid& grid )
+    DuneGrid<GridImpl>::distributeGrid ( Grid& grid )
     {
+        assert( globalIndex_.operator ->() );
+
         // create data handle to distribute the global cartesian index
         DataHandle dh( *globalIndex_ );
 
@@ -344,7 +354,7 @@ namespace Opm
         grid.loadBalance( dh );
 
         // communicate non-interior cells values
-        gridView.communicate( dh, Dune::InteriorBorder_All_Interface, Dune::ForwardCommunication );
+        grid.communicate( dh, Dune::InteriorBorder_All_Interface, Dune::ForwardCommunication );
     }
 
     template <class GridImpl>

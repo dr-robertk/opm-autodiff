@@ -172,7 +172,7 @@ namespace Opm
 
             void unpack( const int link, MessageBufferType& buffer )
             {
-                assert( isIORank() );
+                // assert( isIORank() );
                 // get index map for current link
                 IndexMapType& indexMap = indexMaps_[ link ];
 
@@ -190,6 +190,24 @@ namespace Opm
             }
         };
 
+        UnstructuredGrid* createIOGrid()
+        {
+            UnstructuredGrid* globalUG = 0 ;
+            if( isIORank() )
+            {
+                AllGridPart gridPart( grid() );
+                std::cout << "Computing global unstructured grid for I/O" << std::endl;
+                // create global unstructured grid
+                globalUG = dune2UnstructuredGrid( gridPart.gridView(), globalIndex(), cartDims_, true );
+            }
+
+            // now distribute the grid (including globalIndex )
+            distributeGrid( grid() );
+
+            return globalUG;
+        }
+
+
         using BaseType :: ug_;
         using BaseType :: grid;
         using BaseType :: cartDims_;
@@ -202,6 +220,7 @@ namespace Opm
         DuneFemGrid(Opm::DeckConstPtr deck, const std::vector<double>& poreVolumes )
 #if HAVE_DUNE_FEM
             : BaseType( createDuneGrid( deck, poreVolumes, CreateGridPart(), false ) ),
+              globalUG_( createIOGrid() ), // also distributes the grid
               allGridPart_( grid() ),
               gridPart_( grid() ),
               singleSpace_( gridPart_ ),
@@ -212,15 +231,6 @@ namespace Opm
 #endif
         {
 #if HAVE_DUNE_FEM
-            if( isIORank() )
-            {
-                // create global unstructured grid
-                globalUG_.reset( dune2UnstructuredGrid( allGridPart_.gridView(), globalIndex(), cartDims_, true ) );
-            }
-
-            // now distribute the grid (including globalIndex )
-            distributeGrid( allGridPart_.gridView(), grid() );
-
             // create local unstructured grid
             ug_.reset( dune2UnstructuredGrid( allGridPart_.gridView(), globalIndex(), cartDims_, true ) );
 
@@ -373,8 +383,9 @@ namespace Opm
         };
 
         // gather solution to rank 0 for EclipseWriter
-        void collectToIORank( const SimulatorState& localState, const WellState& wellState )
+        void collectToIORank( SimulatorState& localState, const WellState& wellState )
         {
+            communicate( localState );
             PackUnPackSimulatorState packUnpack( localState, globalState_,
                                                  wellState,  globalWellState_ );
             toIORankComm_.exchange( packUnpack );
@@ -387,6 +398,7 @@ namespace Opm
 #endif
 
     protected:
+        std::unique_ptr< UnstructuredGrid > globalUG_;
 #if HAVE_DUNE_FEM
         AllGridPart allGridPart_;
         GridPart gridPart_;
@@ -395,7 +407,6 @@ namespace Opm
         MpAccessType toIORankComm_;
         std::vector< std::vector< int > > indexMaps_;
 #endif
-        std::unique_ptr< UnstructuredGrid > globalUG_;
         SimulatorState globalState_;
         WellState      globalWellState_;
     };
