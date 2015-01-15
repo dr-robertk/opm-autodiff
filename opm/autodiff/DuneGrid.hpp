@@ -38,6 +38,8 @@
 #include <dune/alugrid/common/fromtogridfactory.hh>
 #endif
 
+#include <opm/autodiff/GridHelpers.hpp>
+
 namespace Opm
 {
     template <class GridImpl>
@@ -575,5 +577,16 @@ namespace Opm
         return ug;
     }
 
+    namespace AutoDiffGrid
+    {
+        // derive from ADFaceCellTraits< UnstructuredGrid > since
+        // DuneGrid casts into UnstructuredGrid
+        template<class G>
+        struct ADFaceCellTraits<DuneGrid< G > > : public ADFaceCellTraits< UnstructuredGrid >
+        {
+        };
+    }
+
 } // end namespace Opm
+
 #endif

@@ -137,7 +137,7 @@ namespace Opm
 
             std::vector< IndexMapType > indexMaps_;
 
-            std::map< const int, int > globalPosition_;
+            std::map< const int, const int > globalPosition_;
         public:
             DistributeLocalIds( const UnstructuredGrid& ug,
                                 const int interiorCells,
@@ -152,7 +152,7 @@ namespace Opm
                     // insert position in grid iteration by global cell id
                     for ( int index = 0; index < globalUG->number_of_cells; ++index )
                     {
-                        globalPosition_[ globalUG->global_cell[ index ] ] = index ;
+                        globalPosition_.insert( std::make_pair( globalUG->global_cell[ index ], index ) );
                     }
                 }
             }
@@ -399,5 +399,16 @@ namespace Opm
         SimulatorState globalState_;
         WellState      globalWellState_;
     };
+
+    namespace AutoDiffGrid
+    {
+        // derive from ADFaceCellTraits< UnstructuredGrid > since
+        // DuneGrid casts into UnstructuredGrid
+        template<class G>
+        struct ADFaceCellTraits<DuneFemGrid< G > > : public ADFaceCellTraits< UnstructuredGrid >
+        {
+        };
+    }
+
 } // end namespace Opm
 #endif
