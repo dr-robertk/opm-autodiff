@@ -128,17 +128,80 @@ namespace Opm
             }
         };
 
+        typedef std::vector<int>  IndexMapType;
+
+        class DistributeLocalIds : public MpAccessType::NonBlockingExchange::DataHandleIF
+        {
+            const UnstructuredGrid& ug_;
+            const int numInteriorCells_;
+
+            std::vector< IndexMapType > indexMaps_;
+
+            std::map< const int, int > globalPosition_;
+        public:
+            DistributeLocalIds( const UnstructuredGrid& ug,
+                                const int interiorCells,
+                                std::vector< IndexMapType >& indexMaps,
+                                std::unique_ptr< UnstructuredGrid >& globalUG )
+            : ug_( ug ),
+              numInteriorCells_( interiorCells ),
+              indexMaps_( indexMaps )
+            {
+                if( globalUG )
+                {
+                    // insert position in grid iteration by global cell id
+                    for ( int index = 0; index < globalUG->number_of_cells; ++index )
+                    {
+                        globalPosition_[ globalUG->global_cell[ index ] ] = index ;
+                    }
+                }
+            }
+
+            void pack( const int link, MessageBufferType& buffer )
+            {
+                // we should only get one link
+                assert( link == 0 );
+                // pack all interior global cell id's
+                buffer.write( numInteriorCells_ );
+                for( int index = 0; index < numInteriorCells_; ++index )
+                {
+                    const int globalIdx = ug_.global_cell[ index ];
+                    buffer.write( globalIdx );
+                }
+            }
+
+            void unpack( const int link, MessageBufferType& buffer )
+            {
+                assert( isIORank() );
+                // get index map for current link
+                IndexMapType& indexMap = indexMaps_[ link ];
+
+                // unpack all interior global cell id's
+                int numCells = 0;
+                buffer.read( numCells );
+                indexMap.resize( numCells );
+                for( int index = 0; index < numCells; ++index )
+                {
+                    int globalId = -1;
+                    buffer.read( globalId );
+                    assert( globalPosition_.find( globalId ) != globalPosition_.end() );
+                    indexMap[ index ] = globalPosition_[ globalId ];
+                }
+            }
+        };
+
         using BaseType :: ug_;
         using BaseType :: grid;
         using BaseType :: cartDims_;
         using BaseType :: globalIndex;
         using BaseType :: createDuneGrid;
+        using BaseType :: distributeGrid;
         using BaseType :: dune2UnstructuredGrid;
         using BaseType :: comm;
 
         DuneFemGrid(Opm::DeckConstPtr deck, const std::vector<double>& poreVolumes )
 #if HAVE_DUNE_FEM
-            : BaseType( createDuneGrid( deck, poreVolumes, CreateGridPart() ) ),
+            : BaseType( createDuneGrid( deck, poreVolumes, CreateGridPart(), false ) ),
               allGridPart_( grid() ),
               gridPart_( grid() ),
               singleSpace_( gridPart_ ),
@@ -148,8 +211,17 @@ namespace Opm
             : BaseType( deck, porv )
 #endif
         {
-
 #if HAVE_DUNE_FEM
+            if( isIORank() )
+            {
+                // create global unstructured grid
+                globalUG_.reset( dune2UnstructuredGrid( allGridPart_.gridView(), globalIndex(), cartDims_, true ) );
+            }
+
+            // now distribute the grid (including globalIndex )
+            distributeGrid( allGridPart_.gridView(), grid() );
+
+            // create local unstructured grid
             ug_.reset( dune2UnstructuredGrid( allGridPart_.gridView(), globalIndex(), cartDims_, true ) );
 
             std::set< int > linkage;
@@ -172,6 +244,16 @@ namespace Opm
 
             // insert linkage to communicator
             toIORankComm_.insertRequestNonSymmetric( linkage );
+
+            if( isIORank() )
+            {
+                // need an index map for each rank
+                indexMaps_.resize( comm().size() );
+            }
+
+            // distribute global id's to io rank for later association of dof's
+            DistributeLocalIds distIds( *ug_, ug_->number_of_cells, indexMaps_, globalUG_ );
+            toIORankComm_.exchange( distIds );
 #endif
         }
 
@@ -311,7 +393,9 @@ namespace Opm
         FiniteVolumeSpace singleSpace_;
         VectorSpaceType   vectorSpace_;
         MpAccessType toIORankComm_;
+        std::vector< std::vector< int > > indexMaps_;
 #endif
+        std::unique_ptr< UnstructuredGrid > globalUG_;
         SimulatorState globalState_;
         WellState      globalWellState_;
     };

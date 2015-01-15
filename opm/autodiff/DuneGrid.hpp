@@ -141,7 +141,7 @@ namespace Opm
 
         //! constructor taking Eclipse deck and pore volumes
         DuneGrid(Opm::DeckConstPtr deck, const std::vector<double>& porv )
-            : grid_( createDuneGrid( deck, porv, CreateLeafGridView() ) ),
+            : grid_( createDuneGrid( deck, porv, CreateLeafGridView(), true ) ),
               ug_( dune2UnstructuredGrid( grid().leafGridView(), globalIndex(), cartDims_, true ) )
         {
             //printCurve( *grid_ );
@@ -187,7 +187,8 @@ namespace Opm
         template <class CreateGridView>
         inline Grid* createDuneGrid( Opm::DeckConstPtr deck,
                                      const std::vector<double>& poreVolumes,
-                                     const CreateGridView& createGridView );
+                                     const CreateGridView& createGridView,
+                                     const bool distribute );
 
         // compute the global id for each cell
         template <class GV>
@@ -203,6 +204,11 @@ namespace Opm
                                const GlobalIndexContainer& globalIndex,
                                const int cartDims[ dimension ],
                                const bool faceTags );
+
+        // compute the global id for each cell
+        template <class GV>
+        inline void distributeGrid( const GV& gridView,
+                                    Grid& grid );
 
         // protected member variables
         std::unique_ptr< GlobalIndexContainer > globalIndex_;
@@ -221,7 +227,8 @@ namespace Opm
     inline GridImpl*
     DuneGrid<GridImpl>::createDuneGrid( Opm::DeckConstPtr deck,
                                         const std::vector<double>& poreVolumes,
-                                        const CreateGridView& createGridView )
+                                        const CreateGridView& createGridView,
+                                        const bool distribute )
     {
         std::unique_ptr< Dune::CpGrid > cpgrid;
         cpgrid.reset( new Dune::CpGrid() );
@@ -277,6 +284,12 @@ namespace Opm
         auto gridView = createGridView( *grid );
         computeGlobalIndex( gridView, *grid, globalCell, ordering );
 
+        if( distribute )
+        {
+            // distribute among all processes
+            distributeGrid( gridView, *grid );
+        }
+
         return grid;
     }
 
@@ -314,12 +327,20 @@ namespace Opm
                 (*globalIndex_)[ *it ] = globalCell[ ordering[ count ] ];
             }
         }
+    }
 
+
+    template <class GridImpl>
+    template <class GV>
+    inline void
+    DuneGrid<GridImpl>::distributeGrid ( const GV& gridView, Grid& grid )
+    {
         // create data handle to distribute the global cartesian index
         DataHandle dh( *globalIndex_ );
 
         // partition grid
         grid.loadBalance( dh );
+
         // communicate non-interior cells values
         gridView.communicate( dh, Dune::InteriorBorder_All_Interface, Dune::ForwardCommunication );
     }
