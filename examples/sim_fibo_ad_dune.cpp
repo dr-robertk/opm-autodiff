@@ -84,7 +84,11 @@ int
 main(int argc, char** argv)
 try
 {
+#if HAVE_DUNE_FEM
+    Dune::Fem::MPIManager::initialize( argc, argv );
+#else
     Dune::MPIHelper::instance( argc, argv );
+#endif
 
     using namespace Opm;
 
@@ -147,11 +151,12 @@ try
     }
 
     const PhaseUsage pu = Opm::phaseUsageFromDeck(deck);
-    Opm::EclipseWriter outputWriter(param,
-                                    eclipseState,
-                                    pu,
-                                    cGrid.number_of_cells,
-                                    cGrid.global_cell);
+    std::unique_ptr< Opm::EclipseWriter > outputWriter;
+                                   //(param,
+                                   // eclipseState,
+                                   // pu,
+                                   // cGrid.number_of_cells,
+                                   // cGrid.global_cell);
 
     // Rock and fluid init
     props.reset(new BlackoilPropertiesFromDeck(deck, eclipseState, grid.c_grid(), param));
@@ -236,7 +241,7 @@ try
                                              deck->hasKeyword("DISGAS"),
                                              deck->hasKeyword("VAPOIL"),
                                              eclipseState,
-                                             outputWriter,
+                                             outputWriter.operator ->(),
                                              threshold_pressures);
 
     std::cout << "\n\n================ Starting main simulation loop ===============\n"

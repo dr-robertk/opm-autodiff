@@ -87,7 +87,7 @@ namespace Opm
              bool has_disgas,
              bool has_vapoil,
              std::shared_ptr<EclipseState> eclipse_state,
-             EclipseWriter& output_writer,
+             EclipseWriter* output_writer,
              const std::vector<double>& threshold_pressures_by_face);
 
         SimulatorReport run(SimulatorTimer& timer,
@@ -121,7 +121,7 @@ namespace Opm
         // eclipse_state
         std::shared_ptr<EclipseState> eclipse_state_;
         // output_writer
-        EclipseWriter& output_writer_;
+        EclipseWriter* output_writer_;
         RateConverterType rateConverter_;
         // Threshold pressures.
         std::vector<double> threshold_pressures_by_face_;
@@ -147,7 +147,7 @@ namespace Opm
                                                                    const bool has_disgas,
                                                                    const bool has_vapoil,
                                                                    std::shared_ptr<EclipseState> eclipse_state,
-                                                                   EclipseWriter& output_writer,
+                                                                   EclipseWriter* output_writer,
                                                                    const std::vector<double>& threshold_pressures_by_face)
 
     {
@@ -237,7 +237,7 @@ namespace Opm
                                                const bool has_disgas,
                                                const bool has_vapoil,
                                                std::shared_ptr<EclipseState> eclipse_state,
-                                               EclipseWriter& output_writer,
+                                               EclipseWriter* output_writer,
                                                const std::vector<double>& threshold_pressures_by_face)
         : param_(param),
           grid_(grid),
@@ -333,11 +333,11 @@ namespace Opm
                 outputStateMatlab(grid_, state, timer.currentStepNum(), output_dir_);
                 outputWellStateMatlab(well_state,timer.currentStepNum(), output_dir_);
             }
-            if (output_) {
+            if (output_ && output_writer_) {
                 if (timer.currentStepNum() == 0) {
-                    output_writer_.writeInit(timer);
+                    output_writer_->writeInit(timer);
                 }
-                output_writer_.writeTimeStep(timer, state, well_state.basicWellState());
+                output_writer_->writeTimeStep(timer, state, well_state.basicWellState());
             }
 
             // Max oil saturation (for VPPARS), hysteresis update.
@@ -398,7 +398,8 @@ namespace Opm
             }
             outputStateMatlab(grid_, state, timer.currentStepNum(), output_dir_);
             outputWellStateMatlab(prev_well_state, timer.currentStepNum(), output_dir_);
-            output_writer_.writeTimeStep(timer, state, prev_well_state.basicWellState());
+            if( output_writer_ )
+                output_writer_->writeTimeStep(timer, state, prev_well_state.basicWellState());
         }
 
         // Stop timer and create timing report

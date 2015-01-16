@@ -85,7 +85,7 @@ namespace Opm
                                        const bool disgas,
                                        const bool vapoil,
                                        std::shared_ptr<EclipseState> eclipse_state,
-                                       EclipseWriter& output_writer,
+                                       EclipseWriter* output_writer,
                                        const std::vector<double>& threshold_pressures_by_face);
 
         /// Run the simulation.
