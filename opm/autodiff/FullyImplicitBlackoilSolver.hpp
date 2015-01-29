@@ -20,6 +20,8 @@
 #ifndef OPM_FULLYIMPLICITBLACKOILSOLVER_HEADER_INCLUDED
 #define OPM_FULLYIMPLICITBLACKOILSOLVER_HEADER_INCLUDED
 
+#include <cassert>
+
 #include <opm/autodiff/AutoDiffBlock.hpp>
 #include <opm/autodiff/AutoDiffHelpers.hpp>
 #include <opm/autodiff/BlackoilPropsAdInterface.hpp>
@@ -65,6 +67,7 @@ namespace Opm {
             double                          relax_max_;
             double                          relax_increment_;
             double                          relax_rel_tol_;
+            double                          max_residual_allowed_;
             int                             max_iter_;
 
             SolverParameter( const parameter::ParameterGroup& param );
@@ -90,7 +93,7 @@ namespace Opm {
                                     const BlackoilPropsAdInterface& fluid,
                                     const DerivedGeology&           geo  ,
                                     const RockCompressibility*      rock_comp_props,
-                                    const Wells&                    wells,
+                                    const Wells*                    wells,
                                     const NewtonIterationBlackoilInterface& linsolver,
                                     const bool has_disgas,
                                     const bool has_vapoil );
@@ -147,18 +150,20 @@ namespace Opm {
             ADB              rs;
             ADB              rv;
             ADB              qs;
-            ADB              bhp;       
+            ADB              bhp;
         };
 
         struct WellOps {
-            WellOps(const Wells& wells);
+            WellOps(const Wells* wells);
             M w2p;              // well -> perf (scatter)
             M p2w;              // perf -> well (gather)
         };
 
-        enum { Water = BlackoilPropsAdInterface::Water,
-               Oil   = BlackoilPropsAdInterface::Oil  ,
-               Gas   = BlackoilPropsAdInterface::Gas  };
+        enum { Water        = BlackoilPropsAdInterface::Water,
+               Oil          = BlackoilPropsAdInterface::Oil  ,
+               Gas          = BlackoilPropsAdInterface::Gas  ,
+               MaxNumPhases = BlackoilPropsAdInterface::MaxNumPhases
+         };
 
         enum PrimalVariables { Sg = 0, RS = 1, RV = 2 };
 
@@ -167,7 +172,7 @@ namespace Opm {
         const BlackoilPropsAdInterface& fluid_;
         const DerivedGeology&           geo_;
         const RockCompressibility*      rock_comp_props_;
-        const Wells&                    wells_;
+        const Wells*                    wells_;
         const NewtonIterationBlackoilInterface&    linsolver_;
         // For each canonical phase -> true if active
         const std::vector<bool>         active_;
@@ -192,6 +197,12 @@ namespace Opm {
         std::vector<int>         primalVariable_;
 
         // Private methods.
+
+        // return true if wells are available
+        bool wellsActive() const { return wells_ ? wells_->number_of_wells > 0 : false ; }
+        // return wells object
+        const Wells& wells () const { assert( bool(wells_ != 0) ); return *wells_; }
+
         SolutionState
         constantState(const BlackoilState& x,
                       const WellStateFullyImplicitBlackoil& xw);
@@ -261,7 +272,11 @@ namespace Opm {
         double
         residualNorm() const;
 
-        std::vector<double> residuals() const;
+        /// \brief Compute the residual norms of the mass balance for each phase,
+        /// the well flux, and the well equation.
+        /// \return a vector that contains for each phase the norm of the mass balance
+        /// and afterwards the norm of the residual of the well flux and the well equation.
+        std::vector<double> computeResidualNorms() const;
 
         ADB
         fluidViscosity(const int               phase,
@@ -353,7 +368,8 @@ namespace Opm {
         double relaxMax() const { return param_.relax_max_; };
         double relaxIncrement() const { return param_.relax_increment_; };
         double relaxRelTol() const { return param_.relax_rel_tol_; };
-        double maxIter() const { return param_.max_iter_; }
+        double maxIter() const     { return param_.max_iter_; }
+        double maxResidualAllowed() const { return param_.max_residual_allowed_; }
 
     };
 } // namespace Opm

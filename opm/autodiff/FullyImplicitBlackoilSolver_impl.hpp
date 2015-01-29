@@ -41,6 +41,7 @@
 #include <cmath>
 #include <iostream>
 #include <iomanip>
+#include <limits>
 //#include <fstream>
 
 // A debugging utility.
@@ -169,6 +170,7 @@ namespace {
         relax_increment_ = 0.1;
         relax_rel_tol_   = 0.2;
         max_iter_        = 15;
+        max_residual_allowed_  = std::numeric_limits< double >::max();
     }
 
     template<class T>
@@ -192,6 +194,7 @@ namespace {
         dr_max_rel_  = param.getDefault("dr_max_rel", dr_max_rel_);
         relax_max_   = param.getDefault("relax_max", relax_max_);
         max_iter_    = param.getDefault("max_iter", max_iter_);
+        max_residual_allowed_ = param.getDefault("max_residual_allowed", max_residual_allowed_);
 
         std::string relaxation_type = param.getDefault("relax_type", std::string("dampen"));
         if (relaxation_type == "dampen") {
@@ -211,7 +214,7 @@ namespace {
                                 const BlackoilPropsAdInterface& fluid,
                                 const DerivedGeology&           geo  ,
                                 const RockCompressibility*      rock_comp_props,
-                                const Wells&                    wells,
+                                const Wells*                    wells,
                                 const NewtonIterationBlackoilInterface&    linsolver,
                                 const bool has_disgas,
                                 const bool has_vapoil)
@@ -225,7 +228,7 @@ namespace {
         , canph_ (active2Canonical(fluid.phaseUsage()))
         , cells_ (buildAllCells(Opm::AutoDiffGrid::numCells(grid)))
         , ops_   (grid)
-        , wops_  (wells)
+        , wops_  (wells_)
         , has_disgas_(has_disgas)
         , has_vapoil_(has_vapoil)
         , param_( param )
@@ -278,7 +281,9 @@ namespace {
             computeWellConnectionPressures(state, xw);
         }
 
-        std::vector<std::vector<double>> residual_history;
+        // For each iteration we store in a vector the norms of the residual of
+        // the mass balance for each active phase, the well flux and the well equations
+        std::vector<std::vector<double>> residual_norms_history;
 
         assemble(pvdt, x, xw);
 
@@ -286,7 +291,7 @@ namespace {
         bool converged = false;
         double omega = 1.;
 
-        residual_history.push_back(residuals());
+        residual_norms_history.push_back(computeResidualNorms());
 
         int          it  = 0;
         converged = getConvergence(dt,it);
@@ -305,7 +310,7 @@ namespace {
             // store number of linear iterations used
             linearIterations += linsolver_.iterations();
 
-            detectNewtonOscillations(residual_history, it, relaxRelTol(), isOscillate, isStagnate);
+            detectNewtonOscillations(residual_norms_history, it, relaxRelTol(), isOscillate, isStagnate);
 
             if (isOscillate) {
                 omega -= relaxIncrement();
@@ -319,7 +324,7 @@ namespace {
 
             assemble(pvdt, x, xw);
 
-            residual_history.push_back(residuals());
+            residual_norms_history.push_back(computeResidualNorms());
 
             // increase iteration counter
             ++it;
@@ -372,30 +377,34 @@ namespace {
 
     template<class T>
     FullyImplicitBlackoilSolver<T>::
-    WellOps::WellOps(const Wells& wells)
-        : w2p(wells.well_connpos[ wells.number_of_wells ],
-              wells.number_of_wells)
-        , p2w(wells.number_of_wells,
-              wells.well_connpos[ wells.number_of_wells ])
+    WellOps::WellOps(const Wells* wells)
+      : w2p(),
+        p2w()
     {
-        const int        nw   = wells.number_of_wells;
-        const int* const wpos = wells.well_connpos;
+        if( wells )
+        {
+            w2p = M(wells->well_connpos[ wells->number_of_wells ], wells->number_of_wells);
+            p2w = M(wells->number_of_wells, wells->well_connpos[ wells->number_of_wells ]);
 
-        typedef Eigen::Triplet<double> Tri;
+            const int        nw   = wells->number_of_wells;
+            const int* const wpos = wells->well_connpos;
 
-        std::vector<Tri> scatter, gather;
-        scatter.reserve(wpos[nw]);
-        gather .reserve(wpos[nw]);
+            typedef Eigen::Triplet<double> Tri;
 
-        for (int w = 0, i = 0; w < nw; ++w) {
-            for (; i < wpos[ w + 1 ]; ++i) {
-                scatter.push_back(Tri(i, w, 1.0));
-                gather .push_back(Tri(w, i, 1.0));
+            std::vector<Tri> scatter, gather;
+            scatter.reserve(wpos[nw]);
+            gather .reserve(wpos[nw]);
+
+            for (int w = 0, i = 0; w < nw; ++w) {
+                for (; i < wpos[ w + 1 ]; ++i) {
+                    scatter.push_back(Tri(i, w, 1.0));
+                    gather .push_back(Tri(w, i, 1.0));
+                }
             }
-        }
 
-        w2p.setFromTriplets(scatter.begin(), scatter.end());
-        p2w.setFromTriplets(gather .begin(), gather .end());
+            w2p.setFromTriplets(scatter.begin(), scatter.end());
+            p2w.setFromTriplets(gather .begin(), gather .end());
+        }
     }
 
 
@@ -490,21 +499,29 @@ namespace {
         }
 
 
-
         // Initial well rates.
-        assert (not xw.wellRates().empty());
-        // Need to reshuffle well rates, from phase running fastest
-        // to wells running fastest.
-        const int nw = wells_.number_of_wells;
-        // The transpose() below switches the ordering.
-        const DataBlock wrates = Eigen::Map<const DataBlock>(& xw.wellRates()[0], nw, np).transpose();
-        const V qs = Eigen::Map<const V>(wrates.data(), nw*np);
-        vars0.push_back(qs);
+        if( wellsActive() )
+        {
+            // Need to reshuffle well rates, from phase running fastest
+            // to wells running fastest.
+            const int nw = wells().number_of_wells;
 
-        // Initial well bottom-hole pressure.
-        assert (not xw.bhp().empty());
-        const V bhp = Eigen::Map<const V>(& xw.bhp()[0], xw.bhp().size());
-        vars0.push_back(bhp);
+            // The transpose() below switches the ordering.
+            const DataBlock wrates = Eigen::Map<const DataBlock>(& xw.wellRates()[0], nw, np).transpose();
+            const V qs = Eigen::Map<const V>(wrates.data(), nw*np);
+            vars0.push_back(qs);
+
+            // Initial well bottom-hole pressure.
+            assert (not xw.bhp().empty());
+            const V bhp = Eigen::Map<const V>(& xw.bhp()[0], xw.bhp().size());
+            vars0.push_back(bhp);
+        }
+        else
+        {
+            // push null states for qs and bhp
+            vars0.push_back(V());
+            vars0.push_back(V());
+        }
 
         std::vector<ADB> vars = ADB::variables(vars0);
 
@@ -564,6 +581,7 @@ namespace {
                 state.saturation[pu.phase_pos[ Oil ]] = so;
             }
         }
+
         // Qs.
         state.qs = vars[ nextvar++ ];
 
@@ -631,12 +649,14 @@ namespace {
     void FullyImplicitBlackoilSolver<T>::computeWellConnectionPressures(const SolutionState& state,
                                                                         const WellStateFullyImplicitBlackoil& xw)
     {
+        if( ! wellsActive() ) return ;
+
         using namespace Opm::AutoDiffGrid;
         // 1. Compute properties required by computeConnectionPressureDelta().
         //    Note that some of the complexity of this part is due to the function
         //    taking std::vector<double> arguments, and not Eigen objects.
-        const int nperf = wells_.well_connpos[wells_.number_of_wells];
-        const std::vector<int> well_cells(wells_.well_cells, wells_.well_cells + nperf);
+        const int nperf = wells().well_connpos[wells().number_of_wells];
+        const std::vector<int> well_cells(wells().well_cells, wells().well_cells + nperf);
         // Compute b, rsmax, rvmax values for perforations.
         const std::vector<ADB> pressures = computePressures(state);
         const ADB perf_temp = subset(state.temperature, well_cells);
@@ -694,7 +714,7 @@ namespace {
 
         // 2. Compute pressure deltas, and store the results.
         std::vector<double> cdp = WellDensitySegmented
-            ::computeConnectionPressureDelta(wells_, xw, fluid_.phaseUsage(),
+            ::computeConnectionPressureDelta(wells(), xw, fluid_.phaseUsage(),
                                              b_perf, rssat_perf, rvsat_perf, perf_depth,
                                              surf_dens, grav);
         well_perforation_pressure_diffs_ = Eigen::Map<const V>(cdp.data(), nperf);
@@ -796,13 +816,15 @@ namespace {
                                                    WellStateFullyImplicitBlackoil& xw,
                                                    V& aliveWells)
     {
+        if( ! wellsActive() ) return ;
+
         const int nc = Opm::AutoDiffGrid::numCells(grid_);
-        const int np = wells_.number_of_phases;
-        const int nw = wells_.number_of_wells;
-        const int nperf = wells_.well_connpos[nw];
+        const int np = wells().number_of_phases;
+        const int nw = wells().number_of_wells;
+        const int nperf = wells().well_connpos[nw];
         const Opm::PhaseUsage& pu = fluid_.phaseUsage();
-        V Tw = Eigen::Map<const V>(wells_.WI, nperf);
-        const std::vector<int> well_cells(wells_.well_cells, wells_.well_cells + nperf);
+        V Tw = Eigen::Map<const V>(wells().WI, nperf);
+        const std::vector<int> well_cells(wells().well_cells, wells().well_cells + nperf);
 
         // pressure diffs computed already (once per step, not changing per iteration)
         const V& cdp = well_perforation_pressure_diffs_;
@@ -824,7 +846,7 @@ namespace {
         // injector == 1, producer == 0
         V isInj = V::Zero(nw);
         for (int w = 0; w < nw; ++w) {
-            if (wells_.type[w] == INJECTOR) {
+            if (wells().type[w] == INJECTOR) {
                 isInj[w] = 1;
             }
         }
@@ -889,7 +911,7 @@ namespace {
         }
 
         // compute avg. and total wellbore phase volumetric rates at std. conds
-        const DataBlock compi = Eigen::Map<const DataBlock>(wells_.comp_frac, nw, np);
+        const DataBlock compi = Eigen::Map<const DataBlock>(wells().comp_frac, nw, np);
         std::vector<ADB> wbq(np, ADB::null());
         ADB wbqt = ADB::constant(V::Zero(nw), state.pressure.blockPattern());
         for (int phase = 0; phase < np; ++phase) {
@@ -1083,15 +1105,17 @@ namespace {
                                                             ADB& well_phase_flow_rate,
                                                             WellStateFullyImplicitBlackoil& xw) const
     {
+        if( ! wellsActive() ) return ;
+
         std::string modestring[3] = { "BHP", "RESERVOIR_RATE", "SURFACE_RATE" };
         // Find, for each well, if any constraints are broken. If so,
         // switch control to first broken constraint.
-        const int np = wells_.number_of_phases;
-        const int nw = wells_.number_of_wells;
+        const int np = wells().number_of_phases;
+        const int nw = wells().number_of_wells;
         bool bhp_changed = false;
         bool rates_changed = false;
         for (int w = 0; w < nw; ++w) {
-            const WellControls* wc = wells_.ctrls[w];
+            const WellControls* wc = wells().ctrls[w];
             // The current control in the well state overrides
             // the current control set in the Wells struct, which
             // is instead treated as a default.
@@ -1108,14 +1132,14 @@ namespace {
                     // inequality constraint, and therefore skipped.
                     continue;
                 }
-                if (constraintBroken(bhp, well_phase_flow_rate, w, np, wells_.type[w], wc, ctrl_index)) {
+                if (constraintBroken(bhp, well_phase_flow_rate, w, np, wells().type[w], wc, ctrl_index)) {
                     // ctrl_index will be the index of the broken constraint after the loop.
                     break;
                 }
             }
             if (ctrl_index != nwc) {
                 // Constraint number ctrl_index was broken, switch to it.
-                std::cout << "Switching control mode for well " << wells_.name[w]
+                std::cout << "Switching control mode for well " << wells().name[w]
                           << " from " << modestring[well_controls_iget_type(wc, current)]
                           << " to " << modestring[well_controls_iget_type(wc, ctrl_index)] << std::endl;
                 xw.currentControls()[w] = ctrl_index;
@@ -1176,14 +1200,16 @@ namespace {
                                                           const WellStateFullyImplicitBlackoil& xw,
                                                           const V& aliveWells)
     {
-        const int np = wells_.number_of_phases;
-        const int nw = wells_.number_of_wells;
+        if( ! wellsActive() ) return;
+
+        const int np = wells().number_of_phases;
+        const int nw = wells().number_of_wells;
 
         V bhp_targets  = V::Zero(nw);
         V rate_targets = V::Zero(nw);
         M rate_distr(nw, np*nw);
         for (int w = 0; w < nw; ++w) {
-            const WellControls* wc = wells_.ctrls[w];
+            const WellControls* wc = wells().ctrls[w];
             // The current control in the well state overrides
             // the current control set in the Wells struct, which
             // is instead treated as a default.
@@ -1254,6 +1280,17 @@ namespace {
         struct Chop01 {
             double operator()(double x) const { return std::max(std::min(x, 1.0), 0.0); }
         };
+
+        double infinityNorm( const ADB& a )
+        {
+            if( a.value().size() > 0 ) {
+                return a.value().matrix().lpNorm<Eigen::Infinity> ();
+            }
+            else { // this situation can occur when no wells are present
+                return 0.0;
+            }
+        }
+
     }
 
 
@@ -1268,7 +1305,7 @@ namespace {
         using namespace Opm::AutoDiffGrid;
         const int np = fluid_.numPhases();
         const int nc = numCells(grid_);
-        const int nw = wells_.number_of_wells;
+        const int nw = wellsActive() ? wells().number_of_wells : 0;
         const V null;
         assert(null.size() == 0);
         const V zero = V::Zero(nc);
@@ -1497,21 +1534,24 @@ namespace {
             std::copy(&rv[0], &rv[0] + nc, state.rv().begin());
         }
 
-        // Qs update.
-        // Since we need to update the wellrates, that are ordered by wells,
-        // from dqs which are ordered by phase, the simplest is to compute
-        // dwr, which is the data from dqs but ordered by wells.
-        const DataBlock wwr = Eigen::Map<const DataBlock>(dqs.data(), np, nw).transpose();
-        const V dwr = Eigen::Map<const V>(wwr.data(), nw*np);
-        const V wr_old = Eigen::Map<const V>(&well_state.wellRates()[0], nw*np);
-        const V wr = wr_old - dwr;
-        std::copy(&wr[0], &wr[0] + wr.size(), well_state.wellRates().begin());
+        if( wellsActive() )
+        {
+            // Qs update.
+            // Since we need to update the wellrates, that are ordered by wells,
+            // from dqs which are ordered by phase, the simplest is to compute
+            // dwr, which is the data from dqs but ordered by wells.
+            const DataBlock wwr = Eigen::Map<const DataBlock>(dqs.data(), np, nw).transpose();
+            const V dwr = Eigen::Map<const V>(wwr.data(), nw*np);
+            const V wr_old = Eigen::Map<const V>(&well_state.wellRates()[0], nw*np);
+            const V wr = wr_old - dwr;
+            std::copy(&wr[0], &wr[0] + wr.size(), well_state.wellRates().begin());
 
-        // Bhp update.
-        const V bhp_old = Eigen::Map<const V>(&well_state.bhp()[0], nw, 1);
-        const V dbhp_limited = sign(dbhp) * dbhp.abs().min(bhp_old.abs()*dpmaxrel);
-        const V bhp = bhp_old - dbhp_limited;
-        std::copy(&bhp[0], &bhp[0] + bhp.size(), well_state.bhp().begin());
+            // Bhp update.
+            const V bhp_old = Eigen::Map<const V>(&well_state.bhp()[0], nw, 1);
+            const V dbhp_limited = sign(dbhp) * dbhp.abs().min(bhp_old.abs()*dpmaxrel);
+            const V bhp = bhp_old - dbhp_limited;
+            std::copy(&bhp[0], &bhp[0] + bhp.size(), well_state.bhp().begin());
+        }
 
         // Update phase conditions used for property calculations.
         updatePhaseCondFromPrimalVariable();
@@ -1615,8 +1655,8 @@ namespace {
                                                      const DataBlock& well_s,
                                                      const std::vector<int>& well_cells) const
     {
-        const int nw = wells_.number_of_wells;
-        const int nperf = wells_.well_connpos[nw];
+        const int nw = wells().number_of_wells;
+        const int nperf = wells().well_connpos[nw];
         const std::vector<int>& bpat = state.pressure.blockPattern();
 
         const ADB null = ADB::constant(V::Zero(nperf), bpat);
@@ -1745,38 +1785,38 @@ namespace {
 
     template<class T>
     std::vector<double>
-    FullyImplicitBlackoilSolver<T>::residuals() const
+    FullyImplicitBlackoilSolver<T>::computeResidualNorms() const
     {
-        std::vector<double> residual;
+        std::vector<double> residualNorms;
 
         std::vector<ADB>::const_iterator massBalanceIt = residual_.material_balance_eq.begin();
         const std::vector<ADB>::const_iterator endMassBalanceIt = residual_.material_balance_eq.end();
 
         for (; massBalanceIt != endMassBalanceIt; ++massBalanceIt) {
-            const double massBalanceResid = (*massBalanceIt).value().matrix().template lpNorm<Eigen::Infinity>();
+            const double massBalanceResid = infinityNorm( (*massBalanceIt) );
             if (!std::isfinite(massBalanceResid)) {
                 OPM_THROW(Opm::NumericalProblem,
                           "Encountered a non-finite residual");
             }
-            residual.push_back(massBalanceResid);
+            residualNorms.push_back(massBalanceResid);
         }
 
         // the following residuals are not used in the oscillation detection now
-        const double wellFluxResid = residual_.well_flux_eq.value().matrix().template lpNorm<Eigen::Infinity>();
+        const double wellFluxResid = infinityNorm( residual_.well_flux_eq );
         if (!std::isfinite(wellFluxResid)) {
-           OPM_THROW(Opm::NumericalProblem,
+            OPM_THROW(Opm::NumericalProblem,
                "Encountered a non-finite residual");
         }
-        residual.push_back(wellFluxResid);
+        residualNorms.push_back(wellFluxResid);
 
-        const double wellResid = residual_.well_eq.value().matrix().template lpNorm<Eigen::Infinity>();
+        const double wellResid = infinityNorm( residual_.well_eq );
         if (!std::isfinite(wellResid)) {
            OPM_THROW(Opm::NumericalProblem,
                "Encountered a non-finite residual");
         }
-        residual.push_back(wellResid);
+        residualNorms.push_back(wellResid);
 
-        return residual;
+        return residualNorms;
     }
 
     template<class T>
@@ -1912,22 +1952,34 @@ namespace {
             RG_sum = RG.sum();
         }
 
-        const double mass_balance_residual_water = fabs(BW_avg*RW_sum) * dt / pvSum;
-        const double mass_balance_residual_oil = fabs(BO_avg*RO_sum) * dt / pvSum;
-        const double mass_balance_residual_gas = fabs(BG_avg*RG_sum) * dt / pvSum;
+        const double mass_balance_residual_water = std::abs(BW_avg*RW_sum) * dt / pvSum;
+        const double mass_balance_residual_oil   = std::abs(BO_avg*RO_sum) * dt / pvSum;
+        const double mass_balance_residual_gas   = std::abs(BG_avg*RG_sum) * dt / pvSum;
 
         bool converged_MB = (mass_balance_residual_water < tol_mb)
-                         && (mass_balance_residual_oil< tol_mb)
-                         && (mass_balance_residual_gas < tol_mb);
+                         && (mass_balance_residual_oil   < tol_mb)
+                         && (mass_balance_residual_gas   < tol_mb);
 
         bool converged_CNV = (CNVW < tol_cnv) && (CNVO < tol_cnv) && (CNVG < tol_cnv);
 
-        double residualWellFlux = residual_.well_flux_eq.value().matrix().template lpNorm<Eigen::Infinity>();
-        double residualWell = residual_.well_eq.value().matrix().template lpNorm<Eigen::Infinity>();
+        const double residualWellFlux = infinityNorm( residual_.well_flux_eq );
+        const double residualWell     = infinityNorm( residual_.well_eq );
 
         bool converged_Well = (residualWellFlux < 1./Opm::unit::day) && (residualWell < Opm::unit::barsa);
-
         bool converged = converged_MB && converged_CNV && converged_Well;
+
+        // if one of the residuals is NaN, throw exception, so that the solver can be restarted
+        if( std::isnan(mass_balance_residual_water) || mass_balance_residual_water > maxResidualAllowed() ||
+            std::isnan(mass_balance_residual_oil)   || mass_balance_residual_oil   > maxResidualAllowed() ||
+            std::isnan(mass_balance_residual_gas)   || mass_balance_residual_gas   > maxResidualAllowed() ||
+            std::isnan(CNVW) || CNVW > maxResidualAllowed() ||
+            std::isnan(CNVO) || CNVO > maxResidualAllowed() ||
+            std::isnan(CNVG) || CNVG > maxResidualAllowed() ||
+            std::isnan(residualWellFlux) || residualWellFlux > maxResidualAllowed() ||
+            std::isnan(residualWell)     || residualWell     > maxResidualAllowed() )
+        {
+            OPM_THROW(Opm::NumericalProblem,"One of the residuals is NaN or to large!");
+        }
 
         if (iteration == 0) {
             std::cout << "\nIter    MB(OIL)  MB(WATER)    MB(GAS)       CNVW       CNVO       CNVG  WELL-FLOW WELL-CNTRL\n";
@@ -2241,7 +2293,7 @@ namespace {
 
         // For oil only cells Rs is used as primal variable. For cells almost full of water
         // the default primal variable (Sg) is used.
-        if (has_disgas_) {         
+        if (has_disgas_) {
             for (V::Index c = 0, e = sg.size(); c != e; ++c) {
                 if ( !watOnly[c] && hasOil[c] && !hasGas[c] ) {primalVariable_[c] = PrimalVariables::RS; }
             }
