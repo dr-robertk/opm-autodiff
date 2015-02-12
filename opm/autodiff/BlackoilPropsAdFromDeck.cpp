@@ -129,6 +129,11 @@ namespace Opm
             std::shared_ptr<PvtConstCompr> pvtw(new PvtConstCompr);
             pvtw->initFromWater(deck->getKeyword("PVTW"));
 
+            if (!eclState->getWatvisctTables().empty()) {
+                pvtw->setWatvisctTables(eclState->getWatvisctTables(),
+                                        deck->getKeyword("VISCREF"));
+            }
+
             props_[phase_usage_.phase_pos[Aqua]] = pvtw;
         }
         // Oil PVT
@@ -139,19 +144,42 @@ namespace Opm
             const auto& pvtoTables = eclState->getPvtoTables();
             if (!pvdoTables.empty()) {
                 if (numSamples > 0) {
-                    auto splinePvt = std::shared_ptr<PvtDeadSpline>(new PvtDeadSpline);
-                    splinePvt->initFromOil(pvdoTables, numSamples);
-                    props_[phase_usage_.phase_pos[Liquid]] = splinePvt;
+                    auto splinePvdo = std::shared_ptr<PvtDeadSpline>(new PvtDeadSpline);
+                    splinePvdo->initFromOil(pvdoTables, numSamples);
+
+                    if (!eclState->getOilvisctTables().empty()) {
+                        splinePvdo->setOilvisctTables(eclState->getOilvisctTables(),
+                                                      deck->getKeyword("VISCREF"));
+                    }
+
+                    props_[phase_usage_.phase_pos[Liquid]] = splinePvdo;
                 } else {
-                    auto deadPvt = std::shared_ptr<PvtDead>(new PvtDead);
-                    deadPvt->initFromOil(pvdoTables);
-                    props_[phase_usage_.phase_pos[Liquid]] = deadPvt;
+                    auto pvdo = std::shared_ptr<PvtDead>(new PvtDead);
+                    pvdo->initFromOil(pvdoTables);
+
+                    if (!eclState->getOilvisctTables().empty()) {
+                        pvdo->setOilvisctTables(eclState->getOilvisctTables(),
+                                                   deck->getKeyword("VISCREF"));
+                    }
+
+                    props_[phase_usage_.phase_pos[Liquid]] = pvdo;
                 }
             } else if (!pvtoTables.empty()) {
-                props_[phase_usage_.phase_pos[Liquid]].reset(new PvtLiveOil(pvtoTables));
+                std::shared_ptr<PvtLiveOil> pvto(new PvtLiveOil(pvtoTables));
+                props_[phase_usage_.phase_pos[Liquid]] = pvto;
+
+                if (!eclState->getOilvisctTables().empty()) {
+                    pvto->setOilvisctTables(eclState->getOilvisctTables(),
+                                            deck->getKeyword("VISCREF"));
+                }
             } else if (deck->hasKeyword("PVCDO")) {
                 std::shared_ptr<PvtConstCompr> pvcdo(new PvtConstCompr);
                 pvcdo->initFromOil(deck->getKeyword("PVCDO"));
+
+                if (!eclState->getOilvisctTables().empty()) {
+                    pvcdo->setOilvisctTables(eclState->getOilvisctTables(),
+                                             deck->getKeyword("VISCREF"));
+                }
 
                 props_[phase_usage_.phase_pos[Liquid]] = pvcdo;
             } else {
@@ -1124,9 +1152,12 @@ namespace Opm
         if (!satOilMax_.empty() && vap > 0.0) { 
             const int n = cells.size();
             V factor = V::Ones(n, 1);
+            const double eps_sqrt = std::sqrt(std::numeric_limits<double>::epsilon());
             for (int i=0; i<n; ++i) {
                 if (satOilMax_[cells[i]] > vap_satmax_guard_ && so[i] < satOilMax_[cells[i]]) {
-                    factor[i] = std::pow(so[i]/satOilMax_[cells[i]], vap);
+                    // guard against too small saturation values.
+                    const double so_i= std::max(so[i],eps_sqrt);
+                    factor[i] = std::pow(so_i/satOilMax_[cells[i]], vap);
                 } 
             }
             r = factor*r;
@@ -1146,22 +1177,23 @@ namespace Opm
         if (!satOilMax_.empty() && vap > 0.0) { 
             const int n = cells.size();
             V factor = V::Ones(n, 1);
-            //V dfactor_dso = V::Zero(n, 1);  TODO: Consider effect of complete jacobian (including so-derivatives)
+            const double eps_sqrt = std::sqrt(std::numeric_limits<double>::epsilon());
+            V dfactor_dso = V::Zero(n, 1);
             for (int i=0; i<n; ++i) {
                 if (satOilMax_[cells[i]] > vap_satmax_guard_ && so.value()[i] < satOilMax_[cells[i]]) {
-                    factor[i] = std::pow(so.value()[i]/satOilMax_[cells[i]], vap);
-                    //dfactor_dso[i] = vap*std::pow(so.value()[i]/satOilMax_[cells[i]], vap-1.0)/satOilMax_[cells[i]];
+                    // guard against too small saturation values.
+                    const double so_i= std::max(so.value()[i],eps_sqrt);
+                    factor[i] = std::pow(so_i/satOilMax_[cells[i]], vap);
+                    dfactor_dso[i] = vap*std::pow(so_i/satOilMax_[cells[i]], vap-1.0)/satOilMax_[cells[i]];
                 }
             }
-            //ADB::M dfactor_dso_diag = spdiag(dfactor_dso);
-            //const int num_blocks = so.numBlocks();
-            //std::vector<ADB::M> jacs(num_blocks);
-            //for (int block = 0; block < num_blocks; ++block) {
-            //    jacs[block] = dfactor_dso_diag * so.derivative()[block];
-            //}
-            //r = ADB::function(factor, jacs)*r;
-            
-            r = factor*r;
+            ADB::M dfactor_dso_diag = spdiag(dfactor_dso);
+            const int num_blocks = so.numBlocks();
+            std::vector<ADB::M> jacs(num_blocks);
+            for (int block = 0; block < num_blocks; ++block) {
+                jacs[block] = dfactor_dso_diag * so.derivative()[block];
+            }
+            r = ADB::function(factor, jacs)*r;
         }
     }
 

@@ -27,7 +27,7 @@
 #include <opm/core/pressure/tpfa/TransTpfa.hpp>
 
 #include <opm/parser/eclipse/EclipseState/EclipseState.hpp>
-
+#include <opm/parser/eclipse/EclipseState/Grid/EclipseGrid.hpp>
 #include <opm/core/utility/platform_dependent/disable_warnings.h>
 
 #include <Eigen/Eigen>
@@ -90,14 +90,24 @@ namespace Opm
                 ntg = eclState->getDoubleGridProperty("NTG")->getData();
             }
 
-            // Pore volume
+            // get grid from parser.
+            
+            // Get original grid cell volume.
+            EclipseGridConstPtr eclgrid = eclState->getEclipseGrid();
+            // Pore volume.
+            // New keywords MINPVF will add some PV due to OPM cpgrid process algorithm.
+            // But the default behavior is to get the comparable pore volume with ECLIPSE.
             for (int cellIdx = 0; cellIdx < numCells; ++cellIdx) {
                 int cartesianCellIdx = AutoDiffGrid::globalCell(grid)[cellIdx];
                 pvol_[cellIdx] =
                     props.porosity()[cellIdx]
                     * multpv[cartesianCellIdx]
-                    * ntg[cartesianCellIdx]
-                    * AutoDiffGrid::cellVolume(grid, cellIdx);
+                    * ntg[cartesianCellIdx];
+                if (eclgrid->getMinpvMode() == MinpvMode::ModeEnum::OpmFIL) {
+                    pvol_[cellIdx] *= AutoDiffGrid::cellVolume(grid, cellIdx);
+                } else {
+                    pvol_[cellIdx] *= eclgrid->getCellVolume(cartesianCellIdx);
+                }                
             }
 
             // Transmissibility
