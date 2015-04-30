@@ -1,5 +1,7 @@
 /*
   Copyright 2014 SINTEF ICT, Applied Mathematics.
+  Copyright 2015 Dr. Blatt - HPC-Simulation-Software & Services
+  Copyright 2015 NTNU
 
   This file is part of the Open Porous Media project (OPM).
 
@@ -22,17 +24,15 @@
 #include <opm/autodiff/DuneMatrix.hpp>
 
 #include <opm/autodiff/NewtonIterationBlackoilCPR.hpp>
-#include <opm/autodiff/CPRPreconditioner.hpp>
 #include <opm/autodiff/AutoDiffHelpers.hpp>
 #include <opm/core/utility/ErrorMacros.hpp>
+#include <opm/core/utility/Exceptions.hpp>
 #include <opm/core/utility/Units.hpp>
 #include <opm/core/linalg/LinearSolverFactory.hpp>
-
+#include <opm/core/linalg/ParallelIstlInformation.hpp>
 #include <opm/core/utility/platform_dependent/disable_warnings.h>
 
-#include <dune/istl/bvector.hh>
 // #include <dune/istl/bcrsmatrix.hh>
-#include <dune/istl/operators.hh>
 #include <dune/istl/io.hh>
 #include <dune/istl/owneroverlapcopy.hh>
 #include <dune/istl/preconditioners.hh>
@@ -57,11 +57,8 @@ namespace Opm
     typedef AutoDiffBlock<double> ADB;
     typedef ADB::V V;
     typedef ADB::M M;
-
-    typedef Dune::FieldVector<double, 1   > VectorBlockType;
     typedef Dune::FieldMatrix<double, 1, 1> MatrixBlockType;
     typedef Dune::BCRSMatrix <MatrixBlockType>        Mat;
-    typedef Dune::BlockVector<VectorBlockType>        Vector;
 
 
     namespace {
@@ -81,14 +78,6 @@ namespace Opm
         /// \return                       solution to complete system.
         V recoverVariable(const ADB& equation, const V& partial_solution, const int n);
 
-        /// Determine diagonality of a sparse matrix.
-        /// If there are off-diagonal elements in the sparse
-        /// structure, this function returns true if they are all
-        /// equal to zero.
-        /// \param[in]  matrix  the matrix under consideration
-        /// \return             true if matrix is diagonal
-        bool isDiagonal(const M& matrix);
-
         /// Form an elliptic system of equations.
         /// \param[in]       num_phases  the number of fluid phases
         /// \param[in]       eqs         the equations
@@ -102,11 +91,6 @@ namespace Opm
                                 Eigen::SparseMatrix<double, Eigen::RowMajor>& A,
                                 V& b);
 
-        /// Create a dune-istl matrix from an Eigen matrix.
-        /// \param[in]  matrix       input Eigen::SparseMatrix
-        /// \return                  output Dune::BCRSMatrix
-        Mat makeIstlMatrix(const Eigen::SparseMatrix<double, Eigen::RowMajor>& matrix);
-
     } // anonymous namespace
 
 
@@ -114,18 +98,18 @@ namespace Opm
 
 
     /// Construct a system solver.
-    template <class Grid>
-    NewtonIterationBlackoilCPR<Grid>::NewtonIterationBlackoilCPR(const parameter::ParameterGroup& param, Grid& grid)
-        : grid_( grid ),
-          iterations_( 0 )
+    NewtonIterationBlackoilCPR::NewtonIterationBlackoilCPR(const parameter::ParameterGroup& param,
+                                                           const boost::any& parallelInformation)
+      : cpr_param_( param ),
+        iterations_( 0 ),
+        parallelInformation_(parallelInformation),
+        newton_use_gmres_( param.getDefault("newton_use_gmres", false ) ),
+        linear_solver_reduction_( param.getDefault("linear_solver_reduction", 1e-2 ) ),
+        linear_solver_maxiter_( param.getDefault("linear_solver_maxiter", 50 ) ),
+        linear_solver_restart_( param.getDefault("linear_solver_restart", 40 ) ),
+        linear_solver_verbosity_( param.getDefault("linear_solver_verbosity", 0 ))
     {
-        cpr_relax_        = param.getDefault("cpr_relax", 1.0);
-        cpr_ilu_n_        = param.getDefault("cpr_ilu_n", 0);
-        cpr_use_amg_      = param.getDefault("cpr_use_amg", false);
-        cpr_use_bicgstab_ = param.getDefault("cpr_use_bicgstab", true);
     }
-
-
 
 
 
@@ -134,9 +118,8 @@ namespace Opm
     /// being the residual itself.
     /// \param[in] residual   residual object containing A and b.
     /// \return               the solution x
-    template <class Grid>
-    typename NewtonIterationBlackoilCPR<Grid>::SolutionVector
-    NewtonIterationBlackoilCPR<Grid>::computeNewtonIncrement(const LinearisedBlackoilResidual& residual) const
+    NewtonIterationBlackoilCPR::SolutionVector
+    NewtonIterationBlackoilCPR::computeNewtonIncrement(const LinearisedBlackoilResidual& residual) const
     {
         // Build the vector of equations.
         const int np = residual.material_balance_eq.size();
@@ -145,17 +128,23 @@ namespace Opm
         for (int phase = 0; phase < np; ++phase) {
             eqs.push_back(residual.material_balance_eq[phase]);
         }
-        eqs.push_back(residual.well_flux_eq);
-        eqs.push_back(residual.well_eq);
 
-        // Eliminate the well-related unknowns, and corresponding equations.
+        // check if wells are present
+        const bool hasWells = residual.well_flux_eq.size() > 0 ;
         std::vector<ADB> elim_eqs;
-        elim_eqs.reserve(2);
-        elim_eqs.push_back(eqs[np]);
-        eqs = eliminateVariable(eqs, np); // Eliminate well flux unknowns.
-        elim_eqs.push_back(eqs[np]);
-        eqs = eliminateVariable(eqs, np); // Eliminate well bhp unknowns.
-        assert(int(eqs.size()) == np);
+        if( hasWells )
+        {
+            eqs.push_back(residual.well_flux_eq);
+            eqs.push_back(residual.well_eq);
+
+            // Eliminate the well-related unknowns, and corresponding equations.
+            elim_eqs.reserve(2);
+            elim_eqs.push_back(eqs[np]);
+            eqs = eliminateVariable(eqs, np); // Eliminate well flux unknowns.
+            elim_eqs.push_back(eqs[np]);
+            eqs = eliminateVariable(eqs, np); // Eliminate well bhp unknowns.
+            assert(int(eqs.size()) == np);
+        }
 
         // Scale material balance equations.
         const double matbalscale[3] = { 1.1169, 1.0031, 0.0031 }; // HACK hardcoded instead of computed.
@@ -178,36 +167,11 @@ namespace Opm
         // Solve reduced system.
         SolutionVector dx(SolutionVector::Zero(b.size()));
 
-        /*
         // Create ISTL matrix.
-        typename Grid :: SystemMatrixType istlA( A );
-
-        // Construct operator, scalar product and vectors needed.
-        typedef typename Grid :: SystemMatrixAdapterType Operator;
-        Operator opA( grid_.matrixAdapter( istlA ) );
-        */
-
         DuneMatrix istlA( A );
-        //grid_.matrixAdapter( istlA );
 
         // Create ISTL matrix for elliptic part.
         DuneMatrix istlAe( A.topLeftCorner(nc, nc) );
-
-        static bool printed = false ;
-        if( ! printed )
-        {
-            std::ofstream file ("matrixpattern_A.gnu");
-            istlA.printPattern( file );
-            std::ofstream file1 ("matrixpattern_Ae.gnu");
-            istlAe.printPattern( file1 );
-            printed = true;
-        }
-        //std::abort();
-
-        // Construct operator, scalar product and vectors needed.
-        typedef Dune::MatrixAdapter<Mat,Vector,Vector> Operator;
-        Operator opA(istlA);
-        Dune::SeqScalarProduct<Vector> sp;
 
         // Right hand side.
         Vector istlb(istlA.N());
@@ -216,44 +180,55 @@ namespace Opm
         Vector x(istlA.M());
         x = 0.0;
 
-        // Construct preconditioner.
-        //typedef Dune::SeqILU0<Mat,Vector,Vector> Preconditioner;
-        typedef Opm::CPRPreconditioner<Mat,Vector,Vector> Preconditioner;
-        //Preconditioner precond(istlA, relax );
-        Preconditioner precond(istlA, istlAe, cpr_relax_, cpr_ilu_n_, cpr_use_amg_, cpr_use_bicgstab_);
-
-        // Construct linear solver.
-        const double tolerance = 1e-3;
-        const int maxit = 150;
-        const int verbosity = 0; // (grid_.comm().rank() == 0) ? 1 : 0;
-        const int restart = 40;
-        //Dune::RestartedGMResSolver< Vector > linsolve(opA, opA.scp(), opA.preconditionAdapter(),
-        //Dune::RestartedGMResSolver< Vector > linsolve(opA, opA.scp(), precond,
-        Dune::RestartedGMResSolver< Vector > linsolve(opA, sp, precond,
-                                                      tolerance, restart, maxit, verbosity);
-
-        // Solve system.
         Dune::InverseOperatorResult result;
-        linsolve.apply(x, istlb, result);
+#if HAVE_MPI
+        if(parallelInformation_.type()==typeid(ParallelISTLInformation))
+        {
+            typedef Dune::OwnerOverlapCopyCommunication<int,int> Comm;
+            const ParallelISTLInformation& info =
+                boost::any_cast<const ParallelISTLInformation&>( parallelInformation_);
+            Comm istlComm(info.communicator());
+            info.copyValuesTo(istlComm.indexSet(), istlComm.remoteIndices());
+            // Construct operator, scalar product and vectors needed.
+            typedef Dune::OverlappingSchwarzOperator<Mat,Vector,Vector,Comm> Operator;
+            Operator opA(istlA, istlComm);
+            constructPreconditionerAndSolve<Dune::SolverCategory::overlapping>(opA, istlAe, x, istlb, istlComm, result);
+        }
+        else
+#endif
+        {
+            // Construct operator, scalar product and vectors needed.
+            typedef Dune::MatrixAdapter<Mat,Vector,Vector> Operator;
+            Operator opA(istlA);
+            Dune::Amg::SequentialInformation info;
+            constructPreconditionerAndSolve(opA, istlAe, x, istlb, info, result);
+        }
 
         // store number of iterations
         iterations_ = result.iterations;
 
         // Check for failure of linear solver.
         if (!result.converged) {
-            OPM_THROW(std::runtime_error, "Convergence failure for linear solver.");
+            OPM_THROW(LinearSolverProblem, "Convergence failure for linear solver.");
         }
 
         // Copy solver output to dx.
         std::copy(x.begin(), x.end(), dx.data());
 
-        // Compute full solution using the eliminated equations.
-        // Recovery in inverse order of elimination.
-        dx = recoverVariable(elim_eqs[1], dx, np);
-        dx = recoverVariable(elim_eqs[0], dx, np);
+        if( hasWells )
+        {
+            // Compute full solution using the eliminated equations.
+            // Recovery in inverse order of elimination.
+            dx = recoverVariable(elim_eqs[1], dx, np);
+            dx = recoverVariable(elim_eqs[0], dx, np);
+        }
         return dx;
     }
 
+    const boost::any& NewtonIterationBlackoilCPR::parallelInformation() const
+    {
+        return parallelInformation_;
+    }
 
 
 
@@ -336,7 +311,7 @@ namespace Opm
                 if (eq == n) {
                     continue;
                 }
-                retval.push_back(ADB::function(vals[eq], jacs[eq]));
+                retval.push_back(ADB::function(std::move(vals[eq]), std::move(jacs[eq])));
             }
             return retval;
         }
@@ -360,7 +335,8 @@ namespace Opm
             // Build C.
             std::vector<M> C_jacs = equation.derivative();
             C_jacs.erase(C_jacs.begin() + n);
-            ADB eq_coll = collapseJacs(ADB::function(equation.value(), C_jacs));
+            V equation_value = equation.value();
+            ADB eq_coll = collapseJacs(ADB::function(std::move(equation_value), std::move(C_jacs)));
             const M& C = eq_coll.derivative()[0];
 
             // Use sparse LU to solve the block submatrices
@@ -396,29 +372,6 @@ namespace Opm
 
 
 
-
-        bool isDiagonal(const M& matr)
-        {
-            M matrix = matr;
-            matrix.makeCompressed();
-            for (int k = 0; k < matrix.outerSize(); ++k) {
-                for (M::InnerIterator it(matrix, k); it; ++it) {
-                    if (it.col() != it.row()) {
-                        // Off-diagonal element.
-                        if (it.value() != 0.0) {
-                            // Nonzero off-diagonal element.
-                            // std::cout << "off-diag: " << it.row() << ' ' << it.col() << std::endl;
-                            return false;
-                        }
-                    }
-                }
-            }
-            return true;
-        }
-
-
-
-
         /// Form an elliptic system of equations.
         /// \param[in]       num_phases  the number of fluid phases
         /// \param[in]       eqs         the equations
@@ -440,7 +393,7 @@ namespace Opm
             // A concession to MRST, to obtain more similar behaviour:
             // swap the first two equations, so that oil is first, then water.
             auto eqs = eqs_in;
-            std::swap(eqs[0], eqs[1]);
+            eqs[0].swap(eqs[1]);
 
             // Characterize the material balance equations.
             const int n = eqs[0].size();
@@ -507,11 +460,7 @@ namespace Opm
             L.setFromTriplets(t.begin(), t.end());
 
             // Combine in single block.
-            ADB total_residual = eqs[0];
-            for (int phase = 1; phase < num_phases; ++phase) {
-                total_residual = vertcat(total_residual, eqs[phase]);
-            }
-            total_residual = collapseJacs(total_residual);
+            ADB total_residual = vertcatCollapseJacs(eqs);
 
             // Create output as product of L with equations.
             A = L * total_residual.derivative()[0];

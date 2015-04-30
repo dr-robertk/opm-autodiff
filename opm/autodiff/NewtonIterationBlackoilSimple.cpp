@@ -22,6 +22,7 @@
 #include <opm/autodiff/NewtonIterationBlackoilSimple.hpp>
 #include <opm/autodiff/AutoDiffHelpers.hpp>
 #include <opm/core/utility/ErrorMacros.hpp>
+#include <opm/core/utility/Exceptions.hpp>
 #include <opm/core/linalg/LinearSolverFactory.hpp>
 
 namespace Opm
@@ -29,8 +30,11 @@ namespace Opm
 
     /// Construct a system solver.
     /// \param[in] linsolver   linear solver to use
-    NewtonIterationBlackoilSimple::NewtonIterationBlackoilSimple(const parameter::ParameterGroup& param)
-        : iterations_( 0 )
+    /// \param[in] parallelInformation In the case of a parallel run
+    ///  with dune-istl the information about the parallelization.
+    NewtonIterationBlackoilSimple::NewtonIterationBlackoilSimple(const parameter::ParameterGroup& param,
+                                                                 const boost::any& parallelInformation)
+        : iterations_( 0 ), parallelInformation_(parallelInformation)
     {
         linsolver_.reset(new LinearSolverFactory(param));
     }
@@ -58,18 +62,22 @@ namespace Opm
         Opm::LinearSolverInterface::LinearSolverReport rep
             = linsolver_->solve(matr.rows(), matr.nonZeros(),
                                 matr.outerIndexPtr(), matr.innerIndexPtr(), matr.valuePtr(),
-                                total_residual.value().data(), dx.data());
+                                total_residual.value().data(), dx.data(), parallelInformation_);
 
         // store iterations
         iterations_ = rep.iterations;
 
         if (!rep.converged) {
-            OPM_THROW(std::runtime_error,
+            OPM_THROW(LinearSolverProblem,
                       "FullyImplicitBlackoilSolver::solveJacobianSystem(): "
                       "Linear solver convergence failure.");
         }
         return dx;
     }
 
+    const boost::any& NewtonIterationBlackoilSimple::parallelInformation() const
+    {
+        return parallelInformation_;
+    }
 } // namespace Opm
 
