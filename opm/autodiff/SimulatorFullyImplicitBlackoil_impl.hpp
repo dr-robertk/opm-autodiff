@@ -34,7 +34,6 @@
 #include <opm/core/well_controls.h>
 #include <opm/core/pressure/flow_bc.h>
 
-#include <opm/core/io/eclipse/EclipseWriter.hpp>
 #include <opm/core/simulator/SimulatorReport.hpp>
 #include <opm/core/simulator/SimulatorTimer.hpp>
 #include <opm/core/simulator/AdaptiveSimulatorTimer.hpp>
@@ -87,7 +86,7 @@ namespace Opm
              bool has_disgas,
              bool has_vapoil,
              std::shared_ptr<EclipseState> eclipse_state,
-             EclipseWriter* output_writer,
+             BlackoilOutputWriter& output_writer,
              const std::vector<double>& threshold_pressures_by_face);
 
         SimulatorReport run(SimulatorTimer& timer,
@@ -101,11 +100,6 @@ namespace Opm
 
         const parameter::ParameterGroup param_;
 
-        // Parameters for output.
-        bool output_;
-        bool output_vtk_;
-        std::string output_dir_;
-        int output_interval_;
         // Observed objects.
         const Grid& grid_;
         BlackoilPropsAdInterface& props_;
@@ -118,10 +112,11 @@ namespace Opm
         std::vector<int> allcells_;
         const bool has_disgas_;
         const bool has_vapoil_;
+        bool       terminal_output_;
         // eclipse_state
         std::shared_ptr<EclipseState> eclipse_state_;
         // output_writer
-        EclipseWriter* output_writer_;
+        BlackoilOutputWriter& output_writer_;
         RateConverterType rateConverter_;
         // Threshold pressures.
         std::vector<double> threshold_pressures_by_face_;
@@ -147,7 +142,7 @@ namespace Opm
                                                                    const bool has_disgas,
                                                                    const bool has_vapoil,
                                                                    std::shared_ptr<EclipseState> eclipse_state,
-                                                                   EclipseWriter* output_writer,
+                                                                   BlackoilOutputWriter& output_writer,
                                                                    const std::vector<double>& threshold_pressures_by_face)
 
     {
@@ -167,64 +162,6 @@ namespace Opm
     }
 
 
-
-    static void outputWellStateMatlab(const Opm::WellStateFullyImplicitBlackoil& well_state,
-                                  const int step,
-                                  const std::string& output_dir)
-    {
-        Opm::DataMap dm;
-        dm["bhp"] = &well_state.bhp();
-        dm["wellrates"] = &well_state.wellRates();
-
-        // Write data (not grid) in Matlab format
-        for (Opm::DataMap::const_iterator it = dm.begin(); it != dm.end(); ++it) {
-            std::ostringstream fname;
-            fname << output_dir << "/" << it->first;
-            boost::filesystem::path fpath = fname.str();
-            try {
-                create_directories(fpath);
-            }
-            catch (...) {
-                OPM_THROW(std::runtime_error,"Creating directories failed: " << fpath);
-            }
-            fname << "/" << std::setw(3) << std::setfill('0') << step << ".txt";
-            std::ofstream file(fname.str().c_str());
-            if (!file) {
-                OPM_THROW(std::runtime_error,"Failed to open " << fname.str());
-            }
-            file.precision(15);
-            const std::vector<double>& d = *(it->second);
-            std::copy(d.begin(), d.end(), std::ostream_iterator<double>(file, "\n"));
-        }
-    }
-
-#if 0
-    static void outputWaterCut(const Opm::Watercut& watercut,
-                               const std::string& output_dir)
-    {
-        // Write water cut curve.
-        std::string fname = output_dir  + "/watercut.txt";
-        std::ofstream os(fname.c_str());
-        if (!os) {
-            OPM_THROW(std::runtime_error, "Failed to open " << fname);
-        }
-        watercut.write(os);
-    }
-
-    static void outputWellReport(const Opm::WellReport& wellreport,
-                                 const std::string& output_dir)
-    {
-        // Write well report.
-        std::string fname = output_dir  + "/wellreport.txt";
-        std::ofstream os(fname.c_str());
-        if (!os) {
-            OPM_THROW(std::runtime_error, "Failed to open " << fname);
-        }
-        wellreport.write(os);
-    }
-#endif
-
-
     // \TODO: Treat bcs.
     template<class T>
     SimulatorFullyImplicitBlackoil<T>::Impl::Impl(const parameter::ParameterGroup& param,
@@ -237,7 +174,7 @@ namespace Opm
                                                const bool has_disgas,
                                                const bool has_vapoil,
                                                std::shared_ptr<EclipseState> eclipse_state,
-                                               EclipseWriter* output_writer,
+                                               BlackoilOutputWriter& output_writer,
                                                const std::vector<double>& threshold_pressures_by_face)
         : param_(param),
           grid_(grid),
@@ -248,33 +185,29 @@ namespace Opm
           solver_(linsolver),
           has_disgas_(has_disgas),
           has_vapoil_(has_vapoil),
+          terminal_output_(param.getDefault("output_terminal", true)),
           eclipse_state_(eclipse_state),
           output_writer_(output_writer),
           rateConverter_(props_, std::vector<int>(AutoDiffGrid::numCells(grid_), 0)),
           threshold_pressures_by_face_(threshold_pressures_by_face)
     {
-        // For output.
-        output_ = param.getDefault("output", true);
-        if (output_) {
-            output_vtk_ = param.getDefault("output_vtk", true);
-            output_dir_ = param.getDefault("output_dir", std::string("output"));
-            // Ensure that output dir exists
-            boost::filesystem::path fpath(output_dir_);
-            try {
-                create_directories(fpath);
-            }
-            catch (...) {
-                OPM_THROW(std::runtime_error, "Creating directories failed: " << fpath);
-            }
-            output_interval_ = param.getDefault("output_interval", 1);
-        }
-
         // Misc init.
-        const int num_cells = AutoDiffGrid::numCells(grid_);
+        const int num_cells = AutoDiffGrid::numCells(grid);
         allcells_.resize(num_cells);
         for (int cell = 0; cell < num_cells; ++cell) {
             allcells_[cell] = cell;
         }
+#if HAVE_MPI
+        if ( terminal_output_ ) {
+            if ( solver_.parallelInformation().type() == typeid(ParallelISTLInformation) )
+            {
+                const ParallelISTLInformation& info =
+                    boost::any_cast<const ParallelISTLInformation&>(solver_.parallelInformation());
+                // Only rank 0 does print to std::cout
+                terminal_output_= (info.communicator().rank()==0);
+            }
+        }
+#endif
     }
 
 
@@ -292,23 +225,40 @@ namespace Opm
         Opm::time::StopWatch step_timer;
         Opm::time::StopWatch total_timer;
         total_timer.start();
-        std::string tstep_filename = output_dir_ + "/step_timing.txt";
+        std::string tstep_filename = output_writer_.outputDirectory() + "/step_timing.txt";
         std::ofstream tstep_os(tstep_filename.c_str());
 
         typename FullyImplicitBlackoilSolver<T>::SolverParameter solverParam( param_ );
 
         // adaptive time stepping
         std::unique_ptr< AdaptiveTimeStepping > adaptiveTimeStepping;
-        if( param_.getDefault("timestep.adaptive", bool(false) ) )
+        if( param_.getDefault("timestep.adaptive", true ) )
         {
             adaptiveTimeStepping.reset( new AdaptiveTimeStepping( param_ ) );
         }
+
+        // init output writer
+        output_writer_.writeInit( timer );
+
+        std::string restorefilename = param_.getDefault("restorefile", std::string("") );
+        if( ! restorefilename.empty() )
+        {
+            // -1 means that we'll take the last report step that was written
+            const int desiredRestoreStep = param_.getDefault("restorestep", int(-1) );
+            output_writer_.restore( timer, state, prev_well_state, restorefilename, desiredRestoreStep );
+        }
+
+        unsigned int totalNewtonIterations = 0;
+        unsigned int totalLinearIterations = 0;
 
         // Main simulation loop.
         while (!timer.done()) {
             // Report timestep.
             step_timer.start();
-            timer.report(std::cout);
+            if ( terminal_output_ )
+            {
+                timer.report(std::cout);
+            }
 
             // Create wells and well state.
             WellsManager wells_manager(eclipse_state_,
@@ -317,7 +267,6 @@ namespace Opm
                                        Opm::UgGridHelpers::globalCell(grid_),
                                        Opm::UgGridHelpers::cartDims(grid_),
                                        Opm::UgGridHelpers::dimensions(grid_),
-                                       Opm::UgGridHelpers::beginCellCentroids(grid_),
                                        Opm::UgGridHelpers::cell2Faces(grid_),
                                        Opm::UgGridHelpers::beginFaceCentroids(grid_),
                                        props_.permeability());
@@ -325,20 +274,8 @@ namespace Opm
             WellStateFullyImplicitBlackoil well_state;
             well_state.init(wells, state, prev_well_state);
 
-            // Output state at start of time step.
-            if (output_ && (timer.currentStepNum() % output_interval_ == 0)) {
-                if (output_vtk_) {
-                    outputStateVtk(grid_, state, timer.currentStepNum(), output_dir_);
-                }
-                outputStateMatlab(grid_, state, timer.currentStepNum(), output_dir_);
-                outputWellStateMatlab(well_state,timer.currentStepNum(), output_dir_);
-            }
-            if (output_ && output_writer_) {
-                if (timer.currentStepNum() == 0) {
-                    output_writer_->writeInit(timer);
-                }
-                output_writer_->writeTimeStep(timer, state, well_state.basicWellState());
-            }
+            // write simulation state at the report stage
+            output_writer_.writeTimeStep( timer, state, well_state );
 
             // Max oil saturation (for VPPARS), hysteresis update.
             props_.updateSatOilMax(state.saturation());
@@ -350,7 +287,7 @@ namespace Opm
             // Run a multiple steps of the solver depending on the time step control.
             solver_timer.start();
 
-            FullyImplicitBlackoilSolver<T> solver(solverParam, grid_, props_, geo_, rock_comp_props_, *wells, solver_, has_disgas_, has_vapoil_);
+            FullyImplicitBlackoilSolver<T> solver(solverParam, grid_, props_, geo_, rock_comp_props_, wells, solver_, has_disgas_, has_vapoil_, terminal_output_);
             if (!threshold_pressures_by_face_.empty()) {
                 solver.setThresholdPressures(threshold_pressures_by_face_);
             }
@@ -361,25 +298,30 @@ namespace Opm
             // \Note: The report steps are met in any case
             // \Note: The sub stepping will require a copy of the state variables
             if( adaptiveTimeStepping ) {
-                adaptiveTimeStepping->step( solver, state, well_state,
-                        timer.simulationTimeElapsed(), timer.currentStepLength() );
+                adaptiveTimeStepping->step( timer, solver, state, well_state,  output_writer_ );
             }
             else {
                 // solve for complete report step
                 solver.step(timer.currentStepLength(), state, well_state);
             }
 
-            // communicate state
-            // grid_.communicate( state );
-
             // take time that was used to solve system for this reportStep
             solver_timer.stop();
 
+            // accumulate the number of Newton and Linear Iterations
+            totalNewtonIterations += solver.newtonIterations();
+            totalLinearIterations += solver.linearIterations();
+
             // Report timing.
             const double st = solver_timer.secsSinceStart();
-            std::cout << "Fully implicit solver took: " << st << " seconds." << std::endl;
+
+            if ( terminal_output_ )
+            {
+                std::cout << "Fully implicit solver took: " << st << " seconds." << std::endl;
+            }
+
             stime += st;
-            if (output_) {
+            if ( output_writer_.output() ) {
                 SimulatorReport step_report;
                 step_report.pressure_time = st;
                 step_report.total_time =  step_timer.secsSinceStart();
@@ -392,15 +334,7 @@ namespace Opm
         }
 
         // Write final simulation state.
-        if (output_) {
-            if (output_vtk_) {
-                outputStateVtk(grid_, state, timer.currentStepNum(), output_dir_);
-            }
-            outputStateMatlab(grid_, state, timer.currentStepNum(), output_dir_);
-            outputWellStateMatlab(prev_well_state, timer.currentStepNum(), output_dir_);
-            if( output_writer_ )
-                output_writer_->writeTimeStep(timer, state, prev_well_state.basicWellState());
-        }
+        output_writer_.writeTimeStep( timer, state, prev_well_state );
 
         // Stop timer and create timing report
         total_timer.stop();
@@ -408,6 +342,8 @@ namespace Opm
         report.pressure_time = stime;
         report.transport_time = 0.0;
         report.total_time = total_timer.secsSinceStart();
+        report.total_newton_iterations = totalNewtonIterations;
+        report.total_linear_iterations = totalLinearIterations;
         return report;
     }
 
@@ -445,17 +381,16 @@ namespace Opm
         }
 
         inline bool
-        is_resv_prod(const Wells& wells,
-                     const int    w)
+        is_resv(const Wells& wells,
+                const int    w)
         {
-            return ((wells.type[w] == PRODUCER) &&
-                    (0 <= resv_control(wells.ctrls[w])));
+            return (0 <= resv_control(wells.ctrls[w]));
         }
 
         inline bool
-        is_resv_prod(const WellMap&     wmap,
-                     const std::string& name,
-                     const std::size_t  step)
+        is_resv(const WellMap&     wmap,
+                const std::string& name,
+                const std::size_t  step)
         {
             bool match = false;
 
@@ -466,29 +401,34 @@ namespace Opm
 
                 match = (wp->isProducer(step) &&
                          wp->getProductionProperties(step)
-                         .hasProductionControl(WellProducer::RESV));
+                         .hasProductionControl(WellProducer::RESV))
+                    ||  (wp->isInjector(step) &&
+                         wp->getInjectionProperties(step)
+                         .hasInjectionControl(WellInjector::RESV));
             }
 
             return match;
         }
 
         inline std::vector<int>
-        resvProducers(const Wells&      wells,
-                      const std::size_t step,
-                      const WellMap&    wmap)
+        resvWells(const Wells*      wells,
+                  const std::size_t step,
+                  const WellMap&    wmap)
         {
-            std::vector<int> resv_prod;
-
-            for (int w = 0, nw = wells.number_of_wells; w < nw; ++w) {
-                if (is_resv_prod(wells, w) ||
-                    ((wells.name[w] != 0) &&
-                     is_resv_prod(wmap, wells.name[w], step)))
-                {
-                    resv_prod.push_back(w);
+            std::vector<int> resv_wells;
+            if( wells )
+            {
+                for (int w = 0, nw = wells->number_of_wells; w < nw; ++w) {
+                    if (is_resv(*wells, w) ||
+                        ((wells->name[w] != 0) &&
+                         is_resv(wmap, wells->name[w], step)))
+                    {
+                        resv_wells.push_back(w);
+                    }
                 }
             }
 
-            return resv_prod;
+            return resv_wells;
         }
 
         inline void
@@ -536,10 +476,9 @@ namespace Opm
         const std::vector<WellConstPtr>& w_ecl = eclipse_state_->getSchedule()->getWells(step);
         const WellMap& wmap = SimFIBODetails::mapWells(w_ecl);
 
-        const std::vector<int>& resv_prod =
-            SimFIBODetails::resvProducers(*wells, step, wmap);
+        const std::vector<int>& resv_wells = SimFIBODetails::resvWells(wells, step, wmap);
 
-        if (! resv_prod.empty()) {
+        if (! resv_wells.empty()) {
             const PhaseUsage&                    pu = props_.phaseUsage();
             const std::vector<double>::size_type np = props_.numPhases();
 
@@ -550,10 +489,11 @@ namespace Opm
             std::vector<double> prates(np);
 
             for (std::vector<int>::const_iterator
-                     rp = resv_prod.begin(), e = resv_prod.end();
+                     rp = resv_wells.begin(), e = resv_wells.end();
                  rp != e; ++rp)
             {
                 WellControls* ctrl = wells->ctrls[*rp];
+                const bool is_producer = wells->type[*rp] == PRODUCER;
 
                 // RESV control mode, all wells
                 {
@@ -562,11 +502,17 @@ namespace Opm
                     if (0 <= rctrl) {
                         const std::vector<double>::size_type off = (*rp) * np;
 
-                        // Convert to positive rates to avoid issues
-                        // in coefficient calculations.
-                        std::transform(xw.wellRates().begin() + (off + 0*np),
-                                       xw.wellRates().begin() + (off + 1*np),
-                                       prates.begin(), std::negate<double>());
+                        if (is_producer) {
+                            // Convert to positive rates to avoid issues
+                            // in coefficient calculations.
+                            std::transform(xw.wellRates().begin() + (off + 0*np),
+                                           xw.wellRates().begin() + (off + 1*np),
+                                           prates.begin(), std::negate<double>());
+                        } else {
+                            std::copy(xw.wellRates().begin() + (off + 0*np),
+                                      xw.wellRates().begin() + (off + 1*np),
+                                      prates.begin());
+                        }
 
                         const int fipreg = 0; // Hack.  Ignore FIP regions.
                         rateConverter_.calcCoeff(prates, fipreg, distr);
@@ -577,7 +523,7 @@ namespace Opm
 
                 // RESV control, WCONHIST wells.  A bit of duplicate
                 // work, regrettably.
-                if (wells->name[*rp] != 0) {
+                if (is_producer && wells->name[*rp] != 0) {
                     WellMap::const_iterator i = wmap.find(wells->name[*rp]);
 
                     if (i != wmap.end()) {
@@ -604,11 +550,18 @@ namespace Opm
                             well_controls_clear(ctrl);
                             well_controls_assert_number_of_phases(ctrl, int(np));
 
-                            const int ok =
+                            const int ok_resv =
                                 well_controls_add_new(RESERVOIR_RATE, target,
                                                       & distr[0], ctrl);
 
-                            if (ok != 0) {
+                            // For WCONHIST/RESV the BHP limit is set to 1 atm.
+                            // TODO: Make it possible to modify the BHP limit using
+                            // the WELTARG keyword
+                            const int ok_bhp =
+                                well_controls_add_new(BHP, unit::convert::from(1.0, unit::atm),
+                                                      NULL, ctrl);
+
+                            if (ok_resv != 0 && ok_bhp != 0) {
                                 xw.currentControls()[*rp] = 0;
                                 well_controls_set_current(ctrl, 0);
                             }
