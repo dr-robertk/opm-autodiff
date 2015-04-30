@@ -26,13 +26,12 @@
 # originally generated with the command:
 # find opm -name '*.c*' -printf '\t%p\n' | sort
 list (APPEND MAIN_SOURCE_FILES
-	opm/autodiff/BlackoilPropsAd.cpp
 	opm/autodiff/BlackoilPropsAdInterface.cpp
+	opm/autodiff/ExtractParallelGridInformationToISTL.cpp
 	opm/autodiff/NewtonIterationBlackoilCPR.cpp
 	opm/autodiff/NewtonIterationBlackoilSimple.cpp
 	opm/autodiff/GridHelpers.cpp
 	opm/autodiff/ImpesTPFAAD.cpp
-	opm/autodiff/SimulatorCompressibleAd.cpp
 	opm/autodiff/SimulatorFullyImplicitBlackoilOutput.cpp
 	opm/autodiff/SimulatorIncompTwophaseAd.cpp
 	opm/autodiff/TransportSolverTwophaseAd.cpp
@@ -44,6 +43,7 @@ list (APPEND MAIN_SOURCE_FILES
 # originally generated with the command:
 # find tests -name '*.cpp' -a ! -wholename '*/not-unit/*' -printf '\t%p\n' | sort
 list (APPEND TEST_SOURCE_FILES
+	tests/test_autodiffhelpers.cpp
 	tests/test_block.cpp
 	tests/test_boprops_ad.cpp
 	tests/test_rateconverter.cpp
@@ -73,18 +73,17 @@ endif()
 # find tutorials examples -name '*.c*' -printf '\t%p\n' | sort
 list (APPEND EXAMPLE_SOURCE_FILES
 	examples/find_zero.cpp
-	examples/sim_fibo_ad.cpp
-	examples/sim_fibo_ad_dune.cpp
+	examples/flow.cpp
 	examples/sim_2p_incomp_ad.cpp
 	examples/sim_simple.cpp
-        examples/opm_init_check.cpp     
+        examples/opm_init_check.cpp
 	)
 
 # programs listed here will not only be compiled, but also marked for
 # installation
 list (APPEND PROGRAM_SOURCE_FILES
 	examples/sim_2p_incomp_ad.cpp
-	examples/sim_fibo_ad.cpp
+	examples/flow.cpp
         examples/opm_init_check.cpp
 	)
 
@@ -94,13 +93,13 @@ list (APPEND PUBLIC_HEADER_FILES
 	opm/autodiff/AutoDiffBlock.hpp
 	opm/autodiff/AutoDiffHelpers.hpp
 	opm/autodiff/AutoDiff.hpp
-	opm/autodiff/BlackoilPropsAd.hpp
+	opm/autodiff/BackupRestore.hpp
 	opm/autodiff/BlackoilPropsAdFromDeck.hpp
 	opm/autodiff/BlackoilPropsAdInterface.hpp
 	opm/autodiff/CPRPreconditioner.hpp
-	opm/autodiff/DuneGrid.hpp
 	opm/autodiff/fastSparseProduct.hpp
 	opm/autodiff/DuneMatrix.hpp
+	opm/autodiff/ExtractParallelGridInformationToISTL.hpp
 	opm/autodiff/GeoProps.hpp
 	opm/autodiff/GridHelpers.hpp
 	opm/autodiff/ImpesTPFAAD.hpp
@@ -111,11 +110,13 @@ list (APPEND PUBLIC_HEADER_FILES
 	opm/autodiff/NewtonIterationBlackoilSimple.hpp
 	opm/autodiff/LinearisedBlackoilResidual.hpp
 	opm/autodiff/RateConverter.hpp
-	opm/autodiff/SimulatorCompressibleAd.hpp
+	opm/autodiff/RedistributeDataHandles.hpp
 	opm/autodiff/SimulatorFullyImplicitBlackoil.hpp
 	opm/autodiff/SimulatorFullyImplicitBlackoil_impl.hpp
 	opm/autodiff/SimulatorIncompTwophaseAd.hpp
 	opm/autodiff/TransportSolverTwophaseAd.hpp
 	opm/autodiff/WellDensitySegmented.hpp
 	opm/autodiff/WellStateFullyImplicitBlackoil.hpp
+	opm/autodiff/SimulatorFullyImplicitBlackoilOutput.hpp
 	)
+

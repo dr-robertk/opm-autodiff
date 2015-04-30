@@ -37,10 +37,8 @@ find_library(METIS_LIBRARIES
 set (METIS_FOUND FALSE)
 if (METIS_INCLUDE_DIRS OR METIS_LIBRARIES)
   set(METIS_FOUND TRUE)
-  set(HAVE_METIS 1)
+  set(HAVE_METIS TRUE)
 endif()
-  
-set (METIS_CONFIG_VAR HAVE_METIS)
 
 # print a message to indicate status of this package
 include (FindPackageHandleStandardArgs)
