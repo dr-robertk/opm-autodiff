@@ -25,6 +25,7 @@
 #include <opm/core/simulator/BlackoilState.hpp>
 #include <opm/core/simulator/WellState.hpp>
 #include <opm/core/utility/ErrorMacros.hpp>
+#include <opm/core/utility/Exceptions.hpp>
 #include <opm/core/linalg/LinearSolverInterface.hpp>
 #include <opm/core/wells.h>
 
@@ -62,12 +63,12 @@ namespace {
         std::vector<int> f2hf(2 * numFaces(grid), -1);
         Eigen::Array<int, Eigen::Dynamic, 2, Eigen::RowMajor>
             face_cells = faceCellsToEigen(grid);
-        
+
         typedef typename Opm::UgGridHelpers::Cell2FacesTraits<UnstructuredGrid>::Type
             Cell2Faces;
         Cell2Faces c2f=cell2Faces(grid);
         for (int c = 0; c < nc; ++c) {
-            typename Cell2Faces::row_type 
+            typename Cell2Faces::row_type
                 cell_faces = c2f[c];
             typedef typename Cell2Faces::row_type::iterator Iter;
             for (Iter f=cell_faces.begin(), end=cell_faces.end();
@@ -180,7 +181,7 @@ namespace {
         // Compute relperms once and for all (since saturations are explicit).
         DataBlock s = Eigen::Map<const DataBlock>(state.saturation().data(), nc, np);
         assert(np == 2);
-        kr_ = fluid_.relperm(s.col(0), s.col(1), V::Zero(nc,1), buildAllCells(nc));
+        kr_ = fluidRelperm(s.col(0), s.col(1), V::Zero(nc,1), buildAllCells(nc));
         // Compute relperms for wells. This must be revisited for crossflow.
         const int nw = wells_.number_of_wells;
         const int nperf = wells_.well_connpos[nw];
@@ -193,7 +194,7 @@ namespace {
         }
         const std::vector<int> well_cells(wells_.well_cells,
                                           wells_.well_cells + nperf);
-        well_kr_ = fluid_.relperm(well_s.col(0), well_s.col(1), V::Zero(nperf,1), well_cells);
+        well_kr_ = fluidRelperm(well_s.col(0), well_s.col(1), V::Zero(nperf,1), well_cells);
 
         const double atol  = 1.0e-10;
         const double rtol  = 5.0e-6;
@@ -255,7 +256,7 @@ namespace {
         // Compute relperms.
         DataBlock s = Eigen::Map<const DataBlock>(state.saturation().data(), nc, np);
         assert(np == 2);
-        kr_ = fluid_.relperm(s.col(0), s.col(1), V::Zero(nc,1), buildAllCells(nc));
+        kr_ = fluidRelperm(s.col(0), s.col(1), V::Zero(nc,1), buildAllCells(nc));
 
         // Compute relperms for wells. This must be revisited for crossflow.
         DataBlock well_s(nperf, np);
@@ -267,7 +268,7 @@ namespace {
         }
         const std::vector<int> well_cells(wells_.well_cells,
                                           wells_.well_cells + nperf);
-        well_kr_ = fluid_.relperm(well_s.col(0), well_s.col(1), V::Zero(nperf,1), well_cells);
+        well_kr_ = fluidRelperm(well_s.col(0), well_s.col(1), V::Zero(nperf,1), well_cells);
 
         // Compute well pressure differentials.
         // Construct pressure difference vector for wells.
@@ -326,7 +327,6 @@ namespace {
         const ADB& p = vars[0];
         const ADB T = ADB::constant(T0);
         const ADB& bhp = vars[1];
-        std::vector<int> bpat = p.blockPattern();
 
         // Compute T_ij * (p_i - p_j).
         const ADB nkgradp = transi * (ops_.ngrad * p);
@@ -351,10 +351,10 @@ namespace {
         const ADB nkgradp_well = transw * (p_perfcell - p_perfwell);
         const Selector<double> cell_to_well_selector(nkgradp_well.value());
 
-        cell_residual_ = ADB::constant(pv, bpat);
-        well_residual_ = ADB::constant(V::Zero(nw,1), bpat);
-        ADB divcontrib_sum = ADB::constant(V::Zero(nc,1), bpat);
-        qs_ = ADB::constant(V::Zero(nw*np, 1), bpat);
+        cell_residual_ = ADB::constant(pv);
+        well_residual_ = ADB::constant(V::Zero(nw,1));
+        ADB divcontrib_sum = ADB::constant(V::Zero(nc,1));
+        qs_ = ADB::constant(V::Zero(nw*np, 1));
         for (int phase = 0; phase < np; ++phase) {
             const ADB cell_b = fluidFvf(phase, p, T, cells);
             const ADB cell_rho = fluidRho(phase, p, T, cells);
@@ -381,7 +381,7 @@ namespace {
             const ADB well_contrib = superset(perf_flux*perf_b, well_cells, nc);
             const ADB divcontrib = delta_t * (ops_.div * (flux * face_b) + well_contrib);
             const V qcontrib = delta_t * q;
-            const ADB pvcontrib = ADB::constant(pv*z0, bpat);
+            const ADB pvcontrib = ADB::constant(pv*z0);
             const ADB component_contrib = pvcontrib + qcontrib;
             divcontrib_sum = divcontrib_sum - divcontrib/cell_b;
             cell_residual_ = cell_residual_ - (component_contrib/cell_b);
@@ -446,7 +446,7 @@ namespace {
                                matr.outerIndexPtr(), matr.innerIndexPtr(), matr.valuePtr(),
                                total_residual_.value().data(), dx.data());
         if (!rep.converged) {
-            OPM_THROW(std::runtime_error, "ImpesTPFAAD::solve(): Linear solver convergence failure.");
+            OPM_THROW(LinearSolverProblem, "ImpesTPFAAD::solve(): Linear solver convergence failure.");
         }
         const V p0 = Eigen::Map<const V>(&state.pressure()[0], nc, 1);
         const V dp = subset(dx, Span(nc));
@@ -553,20 +553,7 @@ namespace {
 
     V ImpesTPFAAD::fluidMu(const int phase, const V& p, const V& T, const std::vector<int>& cells) const
     {
-        switch (phase) {
-        case Water:
-            return fluid_.muWat(p, T, cells);
-        case Oil: {
-            V dummy_rs = V::Zero(p.size(), 1) * p;
-            std::vector<PhasePresence> cond(dummy_rs.size());
-
-            return fluid_.muOil(p, T, dummy_rs, cond, cells);
-        }
-        case Gas:
-            return fluid_.muGas(p, T, cells);
-        default:
-            OPM_THROW(std::runtime_error, "Unknown phase index " << phase);
-        }
+        return fluidMu(phase, ADB::constant(p), ADB::constant(T), cells).value();
     }
 
 
@@ -581,11 +568,13 @@ namespace {
         case Oil: {
             ADB dummy_rs = V::Zero(p.size(), 1) * p;
             std::vector<PhasePresence> cond(dummy_rs.size());
-
             return fluid_.muOil(p, T, dummy_rs, cond, cells);
         }
-        case Gas:
-            return fluid_.muGas(p, T, cells);
+        case Gas: {
+            ADB dummy_rv = V::Zero(p.size(), 1) * p;
+            std::vector<PhasePresence> cond(dummy_rv.size());
+            return fluid_.muGas(p, T, dummy_rv, cond, cells);
+        }
         default:
             OPM_THROW(std::runtime_error, "Unknown phase index " << phase);
         }
@@ -597,20 +586,7 @@ namespace {
 
     V ImpesTPFAAD::fluidFvf(const int phase, const V& p, const V& T, const std::vector<int>& cells) const
     {
-        switch (phase) {
-        case Water:
-            return fluid_.bWat(p, T, cells);
-        case Oil: {
-            V dummy_rs = V::Zero(p.size(), 1) * p;
-            std::vector<PhasePresence> cond(dummy_rs.size());
-
-            return fluid_.bOil(p, T, dummy_rs, cond, cells);
-        }
-        case Gas:
-            return fluid_.bGas(p, T, cells);
-        default:
-            OPM_THROW(std::runtime_error, "Unknown phase index " << phase);
-        }
+        return fluidFvf(phase, ADB::constant(p), ADB::constant(T), cells).value();
     }
 
 
@@ -625,11 +601,13 @@ namespace {
         case Oil: {
             ADB dummy_rs = V::Zero(p.size(), 1) * p;
             std::vector<PhasePresence> cond(dummy_rs.size());
-
             return fluid_.bOil(p, T, dummy_rs, cond, cells);
         }
-        case Gas:
-            return fluid_.bGas(p, T, cells);
+        case Gas: {
+            ADB dummy_rv = V::Zero(p.size(), 1) * p;
+            std::vector<PhasePresence> cond(dummy_rv.size());
+            return fluid_.bGas(p, T, dummy_rv, cond, cells);
+        }
         default:
             OPM_THROW(std::runtime_error, "Unknown phase index " << phase);
         }
@@ -657,6 +635,20 @@ namespace {
         ADB b = fluidFvf(phase, p, T, cells);
         ADB rho = V::Constant(p.size(), 1, rhos[phase]) * b;
         return rho;
+    }
+
+
+
+
+
+    std::vector<V> ImpesTPFAAD::fluidRelperm(const V& sw,
+                                             const V& so,
+                                             const V& sg,
+                                             const std::vector<int>& cells) const
+    {
+        std::vector<ADB> kr_ad = fluid_.relperm(ADB::constant(sw), ADB::constant(so), ADB::constant(sg), cells);
+        std::vector<V> kr = { kr_ad[0].value(), kr_ad[1].value(), kr_ad[2].value() };
+        return kr;
     }
 
 

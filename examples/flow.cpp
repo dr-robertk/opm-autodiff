@@ -33,7 +33,6 @@
 #include <opm/core/utility/parameters/ParameterGroup.hpp>
 #include <opm/core/utility/thresholdPressures.hpp>
 
-#include <opm/core/io/eclipse/EclipseWriter.hpp>
 #include <opm/core/props/BlackoilPropertiesBasic.hpp>
 #include <opm/core/props/BlackoilPropertiesFromDeck.hpp>
 #include <opm/core/props/rock/RockCompressibility.hpp>
@@ -48,6 +47,9 @@
 #include <opm/autodiff/SimulatorFullyImplicitBlackoil.hpp>
 #include <opm/autodiff/BlackoilPropsAdFromDeck.hpp>
 
+#include <opm/parser/eclipse/OpmLog/OpmLog.hpp>
+#include <opm/parser/eclipse/OpmLog/StreamLog.hpp>
+#include <opm/parser/eclipse/OpmLog/CounterLog.hpp>
 #include <opm/parser/eclipse/Deck/Deck.hpp>
 #include <opm/parser/eclipse/Parser/Parser.hpp>
 #include <opm/parser/eclipse/EclipseState/checkDeck.hpp>
@@ -85,19 +87,39 @@ try
 {
     using namespace Opm;
 
-    std::cout << "\n================    Test program for fully implicit three-phase black-oil flow     ===============\n\n";
-    parameter::ParameterGroup param(argc, argv, false);
-    std::cout << "---------------    Reading parameters     ---------------" << std::endl;
+    std::cout << "******************************************************************************************\n";
+    std::cout << "*                                                                                        *\n";
+    std::cout << "*                          This is Flow (version 2015.04)                                *\n";
+    std::cout << "*                                                                                        *\n";
+    std::cout << "* Flow is a simulator for fully implicit three-phase black-oil flow that is part of OPM. *\n";
+    std::cout << "* For more information see:                                                              *\n";
+    std::cout << "*                             http://opm-project.org                                     *\n";
+    std::cout << "*                                                                                        *\n";
+    std::cout << "******************************************************************************************\n\n";
 
-    // If we have a "deck_filename", grid and props will be read from that.
-    bool use_deck = param.has("deck_filename");
-    if (!use_deck) {
-        OPM_THROW(std::runtime_error, "This program must be run with an input deck. "
-                  "Specify the deck with deck_filename=deckname.data (for example).");
+    // Read parameters, see if a deck was specified on the command line.
+    std::cout << "---------------    Reading parameters     ---------------" << std::endl;
+    parameter::ParameterGroup param(argc, argv, false);
+    if (!param.unhandledArguments().empty()) {
+        if (param.unhandledArguments().size() != 1) {
+            OPM_THROW(std::runtime_error, "You can only specify a single input deck on the command line.");
+        } else {
+            param.insertParameter("deck_filename", param.unhandledArguments()[0]);
+        }
+    }
+
+    // We must have an input deck. Grid and props will be read from that.
+    if (!param.has("deck_filename")) {
+        std::cerr << "This program must be run with an input deck.\n"
+            "Specify the deck filename either\n"
+            "    a) as a command line argument by itself\n"
+            "    b) as a command line parameter with the syntax deck_filename=<path to your deck>, or\n"
+            "    c) as a parameter in a parameter file (.param or .xml) passed to the program.";
+        OPM_THROW(std::runtime_error, "Input deck required.");
     }
     std::shared_ptr<GridManager> grid;
     std::shared_ptr<BlackoilPropertiesInterface> props;
-    std::shared_ptr<BlackoilPropsAdInterface> new_props;
+    std::shared_ptr<BlackoilPropsAdFromDeck> new_props;
     std::shared_ptr<RockCompressibility> rock_comp;
     BlackoilState state;
     // bool check_well_controls = false;
@@ -105,27 +127,46 @@ try
     double gravity[3] = { 0.0 };
     std::string deck_filename = param.get<std::string>("deck_filename");
 
-    Opm::ParserPtr parser(new Opm::Parser() );
-    Opm::LoggerPtr logger(new Opm::Logger());
+    // Write parameters used for later reference.
+    bool output = param.getDefault("output", true);
+    std::string output_dir;
+    if (output) {
+        // Create output directory if needed.
+        output_dir =
+            param.getDefault("output_dir", std::string("output"));
+        boost::filesystem::path fpath(output_dir);
+        try {
+            create_directories(fpath);
+        }
+        catch (...) {
+            OPM_THROW(std::runtime_error, "Creating directories failed: " << fpath);
+        }
+        // Write simulation parameters.
+        param.writeParam(output_dir + "/simulation.param");
+    }
+
+    std::string logFile = output_dir + "/LOGFILE.txt";
+    Opm::ParserPtr parser(new Opm::Parser());
+    {
+        std::shared_ptr<Opm::StreamLog> streamLog = std::make_shared<Opm::StreamLog>(logFile , Opm::Log::DefaultMessageTypes);
+        std::shared_ptr<Opm::CounterLog> counterLog = std::make_shared<Opm::CounterLog>(Opm::Log::DefaultMessageTypes);
+
+        Opm::OpmLog::addBackend( "STREAM" , streamLog );
+        Opm::OpmLog::addBackend( "COUNTER" , counterLog );
+    }
+
+
     Opm::DeckConstPtr deck;
     std::shared_ptr<EclipseState> eclipseState;
     try {
-        deck = parser->parseFile(deck_filename, logger);
-        Opm::checkDeck(deck, logger);
-        eclipseState.reset(new Opm::EclipseState(deck, logger));
+        deck = parser->parseFile(deck_filename);
+        Opm::checkDeck(deck);
+        eclipseState.reset(new Opm::EclipseState(deck));
     }
     catch (const std::invalid_argument& e) {
-        if (logger->size() > 0) {
-            std::cerr << "Issues found while parsing the deck file:\n";
-            logger->printAll(std::cerr);
-        }
-        std::cerr << "error while parsing the deck file: " << e.what() << "\n";
+        std::cerr << "Failed to create valid ECLIPSESTATE object. See logfile: " << logFile << std::endl;
+        std::cerr << "Exception caught: " << e.what() << std::endl;
         return EXIT_FAILURE;
-    }
-
-    if (logger->size() > 0) {
-        std::cerr << "Issues found while parsing the deck file:\n";
-        logger->printAll(std::cerr);
     }
 
     // Grid init
@@ -134,11 +175,10 @@ try
     auto &cGrid = *grid->c_grid();
 
     const PhaseUsage pu = Opm::phaseUsageFromDeck(deck);
-    Opm::EclipseWriter outputWriter(param,
-                                    eclipseState,
-                                    pu,
-                                    cGrid.number_of_cells,
-                                    cGrid.global_cell);
+    Opm::BlackoilOutputWriter outputWriter(cGrid,
+                                           param,
+                                           eclipseState,
+                                           pu );
 
     // Rock and fluid init
     props.reset(new BlackoilPropertiesFromDeck(deck, eclipseState, *grid->c_grid(), param));
@@ -174,6 +214,16 @@ try
         initBlackoilStateFromDeck(*grid->c_grid(), *props, deck, gravity[2], state);
     }
 
+    // The capillary pressure is scaled in new_props to match the scaled capillary pressure in props.
+    if (deck->hasKeyword("SWATINIT")) {
+        const int nc = grid->c_grid()->number_of_cells;
+        std::vector<int> cells(nc);
+        for (int c = 0; c < nc; ++c) { cells[c] = c; }
+        std::vector<double> pc = state.saturation();
+        props->capPress(nc, state.saturation().data(), cells.data(), pc.data(),NULL);
+        new_props->setSwatInitScaling(state.saturation(),pc);
+    }
+
     bool use_gravity = (gravity[0] != 0.0 || gravity[1] != 0.0 || gravity[2] != 0.0);
     const double *grav = use_gravity ? &gravity[0] : 0;
 
@@ -186,25 +236,8 @@ try
         fis_solver.reset(new NewtonIterationBlackoilSimple(param));
     }
 
-    // Write parameters used for later reference.
-    bool output = param.getDefault("output", true);
-    std::string output_dir;
-    if (output) {
-        // Create output directory if needed.
-        output_dir =
-            param.getDefault("output_dir", std::string("output"));
-        boost::filesystem::path fpath(output_dir);
-        try {
-            create_directories(fpath);
-        }
-        catch (...) {
-            OPM_THROW(std::runtime_error, "Creating directories failed: " << fpath);
-        }
-        // Write simulation parameters.
-        param.writeParam(output_dir + "/simulation.param");
-    }
-
-    Opm::TimeMapConstPtr timeMap(eclipseState->getSchedule()->getTimeMap());
+    Opm::ScheduleConstPtr schedule = eclipseState->getSchedule();
+    Opm::TimeMapConstPtr timeMap(schedule->getTimeMap());
     SimulatorTimer simtimer;
 
     // initialize variables
@@ -213,7 +246,7 @@ try
     bool use_local_perm = param.getDefault("use_local_perm", true);
     Opm::DerivedGeology geology(*grid->c_grid(), *new_props, eclipseState, use_local_perm, grav);
 
-    std::vector<double> threshold_pressures = thresholdPressures(deck, eclipseState, *grid->c_grid());
+    std::vector<double> threshold_pressures = thresholdPressures(eclipseState, *grid->c_grid());
 
     SimulatorFullyImplicitBlackoil<UnstructuredGrid> simulator(param,
                                              *grid->c_grid(),
@@ -228,19 +261,24 @@ try
                                              outputWriter,
                                              threshold_pressures);
 
-    std::cout << "\n\n================ Starting main simulation loop ===============\n"
-              << std::flush;
+    if (!schedule->initOnly()){
+        std::cout << "\n\n================ Starting main simulation loop ===============\n"
+                  << std::flush;
 
-    SimulatorReport fullReport = simulator.run(simtimer, state);
+        SimulatorReport fullReport = simulator.run(simtimer, state);
 
-    std::cout << "\n\n================    End of simulation     ===============\n\n";
-    fullReport.report(std::cout);
+        std::cout << "\n\n================    End of simulation     ===============\n\n";
+        fullReport.reportFullyImplicit(std::cout);
 
-    if (output) {
-        std::string filename = output_dir + "/walltime.txt";
-        std::fstream tot_os(filename.c_str(),std::fstream::trunc | std::fstream::out);
-        fullReport.reportParam(tot_os);
-        warnIfUnusedParams(param);
+        if (output) {
+            std::string filename = output_dir + "/walltime.txt";
+            std::fstream tot_os(filename.c_str(),std::fstream::trunc | std::fstream::out);
+            fullReport.reportParam(tot_os);
+            warnIfUnusedParams(param);
+        }
+    } else {
+        outputWriter.writeInit( simtimer );
+        std::cout << "\n\n================ Simulation turned off ===============\n" << std::flush;
     }
 }
 catch (const std::exception &e) {

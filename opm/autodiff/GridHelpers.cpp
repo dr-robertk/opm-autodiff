@@ -1,6 +1,7 @@
 /*
-  Copyright 2014 Dr. Markus Blatt - HPC-Simulation-Software & Services.
+  Copyright 2014, 2015 Dr. Markus Blatt - HPC-Simulation-Software & Services.
   Copyright 2014 Statoil AS
+  Copyright 2015 NTNU
 
   This file is part of the Open Porous Media project (OPM).
 
@@ -25,23 +26,6 @@ namespace Opm
 {
 namespace AutoDiffGrid
 {
-
-// Interface functions using Unstructured grid
-/*    
-int numCells(const UnstructuredGrid& grid)
-{
-    return grid.number_of_cells;
-}
-
-int numFaces(const UnstructuredGrid& grid)
-{
-    return grid.number_of_faces;
-}
-int dimensions(const UnstructuredGrid& grid)
-{
-    return grid.dimensions;
-}
-*/
 Eigen::Array<int, Eigen::Dynamic, 2, Eigen::RowMajor>
 faceCellsToEigen(const UnstructuredGrid& grid)
 {
@@ -56,35 +40,12 @@ cellCentroidsZToEigen(const UnstructuredGrid& grid)
         (grid.cell_centroids, grid.number_of_cells, grid.dimensions).rightCols<1>();
 }
 
-const double*
-cellCentroid(const UnstructuredGrid& grid, int cell_index)
-{
-    return grid.cell_centroids+(cell_index*grid.dimensions);
-}
-
-const double* faceCentroid(const UnstructuredGrid& grid, int face_index)
-{
-    return grid.face_centroids+(face_index*grid.dimensions);
-}
 /*
 SparseTableView cell2Faces(const UnstructuredGrid& grid)
 {
     return SparseTableView(grid.cell_faces, grid.cell_facepos, numCells(grid));
 }
 */
-double cellVolume(const UnstructuredGrid& grid, int cell_index)
-{
-    return grid.cell_volumes[cell_index];
-}
-
-const double* beginCellVolumes(const UnstructuredGrid& grid)
-{
-    return grid.cell_volumes;
-}
-const double* endCellVolumes(const UnstructuredGrid& grid)
-{
-    return grid.cell_volumes+numCells(grid);
-}
 
 void extractInternalFaces(const UnstructuredGrid& grid,
                           Eigen::Array<int, Eigen::Dynamic, 1>& internal_faces,
@@ -117,86 +78,6 @@ void extractInternalFaces(const UnstructuredGrid& grid,
 } // end namespace AutoDiffGrid
 
 #ifdef HAVE_DUNE_CORNERPOINT
-// Interface functions using CpGrid
-
-namespace UgGridHelpers
-{
-
-int numCells(const Dune::CpGrid& grid)
-{
-    return grid.numCells();
-}
-
-int numFaces(const  Dune::CpGrid& grid)
-{
-    return grid.numFaces();
-}
-
-int dimensions(const Dune::CpGrid&)
-{
-    return Dune::CpGrid::dimension;
-}
-
-int numCellFaces(const Dune::CpGrid& grid)
-{
-    return grid.numCellFaces();    
-}
-
-const int* cartDims(const Dune::CpGrid& grid)
-{
-    return &(grid.logicalCartesianSize()[0]);
-}
-
-const int*  globalCell(const Dune::CpGrid& grid)
-{
-    return &(grid.globalCell()[0]);
-}
-
-CellCentroidTraits<Dune::CpGrid>::IteratorType
-beginCellCentroids(const Dune::CpGrid& grid)
-{
-    return CellCentroidTraits<Dune::CpGrid>::IteratorType(grid, 0);
-}
-
-double cellCentroidCoordinate(const Dune::CpGrid& grid, int cell_index,
-                              int coordinate)
-{
-    return grid.cellCentroid(cell_index)[coordinate];
-}
-
-FaceCentroidTraits<Dune::CpGrid>::IteratorType
-beginFaceCentroids(const Dune::CpGrid& grid)
-{
-    return FaceCentroidTraits<Dune::CpGrid>::IteratorType(grid, 0);
-}
-
-FaceCentroidTraits<Dune::CpGrid>::ValueType
-faceCentroid(const Dune::CpGrid& grid, int face_index)
-{
-    return grid.faceCentroid(face_index);
-}
-
-Opm::AutoDiffGrid::Cell2FacesContainer cell2Faces(const Dune::CpGrid& grid)
-{
-    return Opm::AutoDiffGrid::Cell2FacesContainer(&grid);
-}
-
-FaceCellTraits<Dune::CpGrid>::Type
-faceCells(const Dune::CpGrid& grid)
-{
-    return Opm::AutoDiffGrid::FaceCellsContainerProxy(&grid);
-}
-
-const double* faceNormal(const Dune::CpGrid& grid, int face_index)
-{
-    return &(grid.faceNormal(face_index)[0]);
-}
-
-double faceArea(const Dune::CpGrid& grid, int face_index)
-{
-    return grid.faceArea(face_index);
-}
-} // end namespace UgGridHelpers
 
 namespace AutoDiffGrid
 {
@@ -204,7 +85,7 @@ namespace AutoDiffGrid
 ADFaceCellTraits<Dune::CpGrid>::Type
 faceCellsToEigen(const Dune::CpGrid& grid)
 {
-    return Opm::AutoDiffGrid::FaceCellsContainerProxy(&grid);
+    return Dune::cpgrid::FaceCellsContainerProxy(&grid);
 }
 
 Eigen::Array<double, Eigen::Dynamic, 1>
@@ -215,24 +96,10 @@ cellCentroidsZToEigen(const Dune::CpGrid& grid)
     Eigen::Array<double, Eigen::Dynamic, 1> array(rows);
     // Fill it with the z coordinate of the cell centroids.
     for (int i=0; i<rows; ++i)
-        array[i]=cellCentroid(grid, i)[2];
+        array[i]=Opm::UgGridHelpers::cellCentroid(grid, i)[2];
     return array;
 }
 
-const double* cellCentroid(const Dune::CpGrid& grid, int cell_index)
-{
-    return &(grid.cellCentroid(cell_index)[0]);
-}
-
-const double* faceCentroid(const Dune::CpGrid& grid, int face_index)
-{
-    return &(grid.faceCentroid(face_index)[0]);
-}
-
-double cellVolume(const  Dune::CpGrid& grid, int cell_index)
-{
-    return grid.cellVolume(cell_index);
-}
 
 void extractInternalFaces(const Dune::CpGrid& grid,
                           Eigen::Array<int, Eigen::Dynamic, 1>& internal_faces,
@@ -263,16 +130,6 @@ void extractInternalFaces(const Dune::CpGrid& grid,
     }
 }
 
-
-CellVolumeIterator beginCellVolumes(const Dune::CpGrid& grid)
-{
-    return CellVolumeIterator(grid, 0);
-}
-
-CellVolumeIterator endCellVolumes(const Dune::CpGrid& grid)
-{
-    return CellVolumeIterator(grid, numCells(grid));
-}
 }       // end namespace AutoDiffGrid
 #endif  // HAVE_DUNE_CORNERPOINT
 }       // end namespace Opm

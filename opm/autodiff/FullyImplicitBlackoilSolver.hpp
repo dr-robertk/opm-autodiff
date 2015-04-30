@@ -20,11 +20,15 @@
 #ifndef OPM_FULLYIMPLICITBLACKOILSOLVER_HEADER_INCLUDED
 #define OPM_FULLYIMPLICITBLACKOILSOLVER_HEADER_INCLUDED
 
+#include <cassert>
+
 #include <opm/autodiff/AutoDiffBlock.hpp>
 #include <opm/autodiff/AutoDiffHelpers.hpp>
 #include <opm/autodiff/BlackoilPropsAdInterface.hpp>
 #include <opm/autodiff/LinearisedBlackoilResidual.hpp>
 #include <opm/autodiff/NewtonIterationBlackoilInterface.hpp>
+
+#include <array>
 
 struct UnstructuredGrid;
 struct Wells;
@@ -65,7 +69,12 @@ namespace Opm {
             double                          relax_max_;
             double                          relax_increment_;
             double                          relax_rel_tol_;
-            int                             max_iter_;
+            double                          max_residual_allowed_;
+            double                          tolerance_mb_;
+            double                          tolerance_cnv_;
+            double                          tolerance_wells_;
+            int                             max_iter_; // max newton iterations
+            int                             min_iter_; // min newton iterations
 
             SolverParameter( const parameter::ParameterGroup& param );
             SolverParameter();
@@ -90,10 +99,11 @@ namespace Opm {
                                     const BlackoilPropsAdInterface& fluid,
                                     const DerivedGeology&           geo  ,
                                     const RockCompressibility*      rock_comp_props,
-                                    const Wells&                    wells,
+                                    const Wells*                    wells,
                                     const NewtonIterationBlackoilInterface& linsolver,
                                     const bool has_disgas,
-                                    const bool has_vapoil );
+                                    const bool has_vapoil,
+                                    const bool terminal_output);
 
         /// \brief Set threshold pressures that prevent or reduce flow.
         /// This prevents flow across faces if the potential
@@ -119,6 +129,9 @@ namespace Opm {
         step(const double   dt    ,
              BlackoilState& state ,
              WellStateFullyImplicitBlackoil&     wstate);
+
+        unsigned int newtonIterations () const { return newtonIterations_; }
+        unsigned int linearIterations () const { return linearIterations_; }
 
     private:
         // Types and enums
@@ -147,18 +160,22 @@ namespace Opm {
             ADB              rs;
             ADB              rv;
             ADB              qs;
-            ADB              bhp;       
+            ADB              bhp;
+            // Below are quantities stored in the state for optimization purposes.
+            std::vector<ADB> canonical_phase_pressures; // Always has 3 elements, even if only 2 phases active.
         };
 
         struct WellOps {
-            WellOps(const Wells& wells);
+            WellOps(const Wells* wells);
             M w2p;              // well -> perf (scatter)
             M p2w;              // perf -> well (gather)
         };
 
-        enum { Water = BlackoilPropsAdInterface::Water,
-               Oil   = BlackoilPropsAdInterface::Oil  ,
-               Gas   = BlackoilPropsAdInterface::Gas  };
+        enum { Water        = BlackoilPropsAdInterface::Water,
+               Oil          = BlackoilPropsAdInterface::Oil  ,
+               Gas          = BlackoilPropsAdInterface::Gas  ,
+               MaxNumPhases = BlackoilPropsAdInterface::MaxNumPhases
+         };
 
         enum PrimalVariables { Sg = 0, RS = 1, RV = 2 };
 
@@ -167,7 +184,7 @@ namespace Opm {
         const BlackoilPropsAdInterface& fluid_;
         const DerivedGeology&           geo_;
         const RockCompressibility*      rock_comp_props_;
-        const Wells&                    wells_;
+        const Wells*                    wells_;
         const NewtonIterationBlackoilInterface&    linsolver_;
         // For each canonical phase -> true if active
         const std::vector<bool>         active_;
@@ -189,16 +206,30 @@ namespace Opm {
 
         LinearisedBlackoilResidual residual_;
 
+        /// \brief Whether we print something to std::cout
+        bool terminal_output_;
+        unsigned int newtonIterations_;
+        unsigned int linearIterations_;
+
         std::vector<int>         primalVariable_;
 
         // Private methods.
+
+        // return true if wells are available
+        bool wellsActive() const { return wells_ ? wells_->number_of_wells > 0 : false ; }
+        // return wells object
+        const Wells& wells () const { assert( bool(wells_ != 0) ); return *wells_; }
+
         SolutionState
         constantState(const BlackoilState& x,
-                      const WellStateFullyImplicitBlackoil& xw);
+                      const WellStateFullyImplicitBlackoil& xw) const;
+
+        void
+        makeConstantState(SolutionState& state) const;
 
         SolutionState
         variableState(const BlackoilState& x,
-                      const WellStateFullyImplicitBlackoil& xw);
+                      const WellStateFullyImplicitBlackoil& xw) const;
 
         void
         computeAccum(const SolutionState& state,
@@ -224,6 +255,7 @@ namespace Opm {
         void
         assemble(const V&             dtpv,
                  const BlackoilState& x,
+                 const bool initial_assembly,
                  WellStateFullyImplicitBlackoil& xw);
 
         V solveJacobianSystem() const;
@@ -241,13 +273,14 @@ namespace Opm {
                          const ADB& so,
                          const ADB& sg) const;
 
-        std::vector<ADB>
-        computeRelPerm(const SolutionState& state) const;
+        V
+        computeGasPressure(const V& po,
+                           const V& sw,
+                           const V& so,
+                           const V& sg) const;
 
         std::vector<ADB>
-        computeRelPermWells(const SolutionState& state,
-                            const DataBlock& well_s,
-                            const std::vector<int>& well_cells) const;
+        computeRelPerm(const SolutionState& state) const;
 
         void
         computeMassFlux(const int               actph ,
@@ -261,7 +294,11 @@ namespace Opm {
         double
         residualNorm() const;
 
-        std::vector<double> residuals() const;
+        /// \brief Compute the residual norms of the mass balance for each phase,
+        /// the well flux, and the well equation.
+        /// \return a vector that contains for each phase the norm of the mass balance
+        /// and afterwards the norm of the residual of the well flux and the well equation.
+        std::vector<double> computeResidualNorms() const;
 
         ADB
         fluidViscosity(const int               phase,
@@ -340,6 +377,34 @@ namespace Opm {
         /// residual mass balance (tol_cnv).
         bool getConvergence(const double dt, const int iteration);
 
+        /// \brief Compute the reduction within the convergence check.
+        /// \param[in] B     A matrix with MaxNumPhases columns and the same number rows
+        ///                  as the number of cells of the grid. B.col(i) contains the values
+        ///                  for phase i.
+        /// \param[in] tempV A matrix with MaxNumPhases columns and the same number rows
+        ///                  as the number of cells of the grid. tempV.col(i) contains the
+        ///                   values
+        ///                  for phase i.
+        /// \param[in] R     A matrix with MaxNumPhases columns and the same number rows
+        ///                  as the number of cells of the grid. B.col(i) contains the values
+        ///                  for phase i.
+        /// \param[out] R_sum An array of size MaxNumPhases where entry i contains the sum
+        ///                   of R for the phase i.
+        /// \param[out] maxCoeff An array of size MaxNumPhases where entry i contains the
+        ///                   maximum of tempV for the phase i.
+        /// \param[out] B_avg An array of size MaxNumPhases where entry i contains the average
+        ///                   of B for the phase i.
+        /// \param[in]  nc    The number of cells of the local grid.
+        /// \return The total pore volume over all cells.
+        double
+        convergenceReduction(const Eigen::Array<double, Eigen::Dynamic, MaxNumPhases>& B,
+                             const Eigen::Array<double, Eigen::Dynamic, MaxNumPhases>& tempV,
+                             const Eigen::Array<double, Eigen::Dynamic, MaxNumPhases>& R,
+                             std::array<double,MaxNumPhases>& R_sum,
+                             std::array<double,MaxNumPhases>& maxCoeff,
+                             std::array<double,MaxNumPhases>& B_avg,
+                             int nc) const;
+
         void detectNewtonOscillations(const std::vector<std::vector<double>>& residual_history,
                                       const int it, const double relaxRelTol,
                                       bool& oscillate, bool& stagnate) const;
@@ -353,7 +418,9 @@ namespace Opm {
         double relaxMax() const { return param_.relax_max_; };
         double relaxIncrement() const { return param_.relax_increment_; };
         double relaxRelTol() const { return param_.relax_rel_tol_; };
-        double maxIter() const { return param_.max_iter_; }
+        double maxIter() const     { return param_.max_iter_; }
+        double minIter() const     { return param_.min_iter_; }
+        double maxResidualAllowed() const { return param_.max_residual_allowed_; }
 
     };
 } // namespace Opm

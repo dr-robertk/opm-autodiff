@@ -1,5 +1,7 @@
 /*
   Copyright 2013 SINTEF ICT, Applied Mathematics.
+  Copyright 2015 Dr. Blatt - HPC-Simulation-Software & Services.
+  Copyright 2015 NTNU.
 
   This file is part of the Open Porous Media project (OPM).
 
@@ -55,6 +57,7 @@ namespace Opm
     /// version of the methods.
     class BlackoilPropsAdFromDeck : public BlackoilPropsAdInterface
     {
+        friend class BlackoilPropsDataHandle;
     public:
         /// Constructor wrapping an opm-core black oil interface.
         BlackoilPropsAdFromDeck(Opm::DeckConstPtr deck,
@@ -69,6 +72,19 @@ namespace Opm
                                 const Dune::CpGrid& grid,
                                 const bool init_rock = true );
 #endif
+
+        /// \brief Constructor to create properties for a subgrid
+        ///
+        /// This copies all properties that are not dependant on the
+        /// grid size from an existing properties object
+        /// and the number of cells. All properties that do not depend
+        /// on the grid dimension will be copied. For the rest will have
+        /// the correct size but the values will be undefined.
+        ///
+        /// \param props            The property object to copy from.
+        /// \paramm number_of_cells The number of cells of the subgrid.
+        BlackoilPropsAdFromDeck(const BlackoilPropsAdFromDeck& props,
+                                const int number_of_cells);
 
 
         ////////////////////////////
@@ -109,12 +125,6 @@ namespace Opm
         /// \return   Object describing the active phases.
         PhaseUsage phaseUsage() const;
 
-        // ------ Canonical named indices for each phase ------
-
-        /// Canonical named indices for each phase.
-        enum PhaseIndex { Water = 0, Oil = 1, Gas = 2 };
-
-
         // ------ Density ------
 
         /// Densities of stock components at surface conditions.
@@ -123,50 +133,6 @@ namespace Opm
 
 
         // ------ Viscosity ------
-
-        /// Water viscosity.
-        /// \param[in]  pw     Array of n water pressure values.
-        /// \param[in]  T      Array of n temperature values.
-        /// \param[in]  cells  Array of n cell indices to be associated with the pressure values.
-        /// \return            Array of n viscosity values.
-        V muWat(const V& pw,
-                const V& T,
-                const Cells& cells) const;
-
-        /// Oil viscosity.
-        /// \param[in]  po     Array of n oil pressure values.
-        /// \param[in]  T      Array of n temperature values.
-        /// \param[in]  rs     Array of n gas solution factor values.
-        /// \param[in]  cond   Array of n objects, each specifying which phases are present with non-zero saturation in a cell.
-        /// \param[in]  cells  Array of n cell indices to be associated with the pressure values.
-        /// \return            Array of n viscosity values.
-        V muOil(const V& po,
-                const V& T,
-                const V& rs,
-                const std::vector<PhasePresence>& cond,
-                const Cells& cells) const;
-
-        /// Gas viscosity.
-        /// \param[in]  pg     Array of n gas pressure values.
-        /// \param[in]  T      Array of n temperature values.
-        /// \param[in]  cells  Array of n cell indices to be associated with the pressure values.
-        /// \return            Array of n viscosity values.
-        V muGas(const V& pg,
-                const V& T,
-                const Cells& cells) const;
-
-        /// Oil viscosity.
-        /// \param[in]  po     Array of n oil pressure values.
-        /// \param[in]  T      Array of n temperature values.
-        /// \param[in]  rv     Array of n vapor oil/gas ratio
-        /// \param[in]  cond   Array of n objects, each specifying which phases are present with non-zero saturation in a cell.
-        /// \param[in]  cells  Array of n cell indices to be associated with the pressure values.
-        /// \return            Array of n viscosity values.
-        V muGas(const V& po,
-                const V& T,
-                const V& rv,
-                const std::vector<PhasePresence>& cond,
-                const Cells& cells) const;
 
         /// Water viscosity.
         /// \param[in]  pw     Array of n water pressure values.
@@ -193,15 +159,8 @@ namespace Opm
         /// Gas viscosity.
         /// \param[in]  pg     Array of n gas pressure values.
         /// \param[in]  T      Array of n temperature values.
-        /// \param[in]  cells  Array of n cell indices to be associated with the pressure values.
-        /// \return            Array of n viscosity values.
-        ADB muGas(const ADB& pg,
-                  const ADB& T,
-                  const Cells& cells) const;
-
-        /// Gas viscosity.
-        /// \param[in]  pg     Array of n gas pressure values.
-        /// \param[in]  T      Array of n temperature values.
+        /// \param[in]  rv     Array of n vapor oil/gas ratios.
+        /// \param[in]  cond   Array of n objects, each specifying which phases are present with non-zero saturation in a cell.
         /// \param[in]  cells  Array of n cell indices to be associated with the pressure values.
         /// \return            Array of n viscosity values.
         ADB muGas(const ADB& pg,
@@ -211,50 +170,6 @@ namespace Opm
                   const Cells& cells) const;
 
         // ------ Formation volume factor (b) ------
-
-        /// Water formation volume factor.
-        /// \param[in]  pw     Array of n water pressure values.
-        /// \param[in]  T      Array of n temperature values.
-        /// \param[in]  cells  Array of n cell indices to be associated with the pressure values.
-        /// \return            Array of n formation volume factor values.
-        V bWat(const V& pw,
-               const V& T,
-               const Cells& cells) const;
-
-        /// Oil formation volume factor.
-        /// \param[in]  po     Array of n oil pressure values.
-        /// \param[in]  T      Array of n temperature values.
-        /// \param[in]  rs     Array of n gas solution factor values.
-        /// \param[in]  cond   Array of n objects, each specifying which phases are present with non-zero saturation in a cell.
-        /// \param[in]  cells  Array of n cell indices to be associated with the pressure values.
-        /// \return            Array of n formation volume factor values.
-        V bOil(const V& po,
-               const V& T,
-               const V& rs,
-               const std::vector<PhasePresence>& cond,
-               const Cells& cells) const;
-
-        /// Gas formation volume factor.
-        /// \param[in]  pg     Array of n gas pressure values.
-        /// \param[in]  T      Array of n temperature values.
-        /// \param[in]  cells  Array of n cell indices to be associated with the pressure values.
-        /// \return            Array of n formation volume factor values.
-        V bGas(const V& pg,
-               const V& T,
-               const Cells& cells) const;
-
-        /// Gas formation volume factor.
-        /// \param[in]  pg     Array of n gas pressure values.
-        /// \param[in]  T      Array of n temperature values.
-        /// \param[in]  rv     Array of n vapor oil/gas ratio
-        /// \param[in]  cond   Array of n objects, each specifying which phases are present with non-zero saturation in a cell.
-        /// \param[in]  cells  Array of n cell indices to be associated with the pressure values.
-        /// \return            Array of n formation volume factor values.
-        V bGas(const V& pg,
-               const V& T,
-               const V& rv,
-               const std::vector<PhasePresence>& cond,
-               const Cells& cells) const;
 
         /// Water formation volume factor.
         /// \param[in]  pw     Array of n water pressure values.
@@ -281,24 +196,15 @@ namespace Opm
         /// Gas formation volume factor.
         /// \param[in]  pg     Array of n gas pressure values.
         /// \param[in]  T      Array of n temperature values.
-        /// \param[in]  cells  Array of n cell indices to be associated with the pressure values.
-        /// \return            Array of n formation volume factor values.
-        ADB bGas(const ADB& pg,
-                 const ADB& T,
-                 const Cells& cells) const;
-
-        /// Gas formation volume factor.
-        /// \param[in]  pg     Array of n gas pressure values.
-        /// \param[in]  T      Array of n temperature values.
         /// \param[in]  rv     Array of n vapor oil/gas ratio
         /// \param[in]  cond   Array of n objects, each specifying which phases are present with non-zero saturation in a cell.
         /// \param[in]  cells  Array of n cell indices to be associated with the pressure values.
         /// \return            Array of n formation volume factor values.
         ADB bGas(const ADB& pg,
                  const ADB& T,
-               const ADB& rv,
-               const std::vector<PhasePresence>& cond,
-               const Cells& cells) const;
+                 const ADB& rv,
+                 const std::vector<PhasePresence>& cond,
+                 const Cells& cells) const;
 
         // ------ Rs bubble point curve ------
 
@@ -339,23 +245,7 @@ namespace Opm
         /// Condensation curve for Rv as function of oil pressure.
         /// \param[in]  po     Array of n oil pressure values.
         /// \param[in]  cells  Array of n cell indices to be associated with the pressure values.
-        /// \return            Array of n bubble point values for Rs.
-        V rvSat(const V& po,
-                const Cells& cells) const;
-
-        /// Condensation curve for Rv as function of oil pressure.
-        /// \param[in]  po     Array of n oil pressure values.
-        /// \param[in]  so     Array of n oil saturation values.
-        /// \param[in]  cells  Array of n cell indices to be associated with the pressure values.
-        /// \return            Array of n bubble point values for Rs.
-        V rvSat(const V& po,
-                const V& so,
-                const Cells& cells) const;
-
-        /// Condensation curve for Rv as function of oil pressure.
-        /// \param[in]  po     Array of n oil pressure values.
-        /// \param[in]  cells  Array of n cell indices to be associated with the pressure values.
-        /// \return            Array of n bubble point values for Rs.
+        /// \return            Array of n condensation point values for Rv.
         ADB rvSat(const ADB& po,
                   const Cells& cells) const;
 
@@ -363,24 +253,12 @@ namespace Opm
         /// \param[in]  po     Array of n oil pressure values.
         /// \param[in]  so     Array of n oil saturation values.
         /// \param[in]  cells  Array of n cell indices to be associated with the pressure values.
-        /// \return            Array of n bubble point values for Rs.
+        /// \return            Array of n condensation point values for Rv.
         ADB rvSat(const ADB& po,
                   const ADB& so,
                   const Cells& cells) const;
 
         // ------ Relative permeability ------
-
-        /// Relative permeabilities for all phases.
-        /// \param[in]  sw     Array of n water saturation values.
-        /// \param[in]  so     Array of n oil saturation values.
-        /// \param[in]  sg     Array of n gas saturation values.
-        /// \param[in]  cells  Array of n cell indices to be associated with the saturation values.
-        /// \return            An std::vector with 3 elements, each an array of n relperm values,
-        ///                    containing krw, kro, krg. Use PhaseIndex for indexing into the result.
-        std::vector<V> relperm(const V& sw,
-                               const V& so,
-                               const V& sg,
-                               const Cells& cells) const;
 
         /// Relative permeabilities for all phases.
         /// \param[in]  sw     Array of n water saturation values.
@@ -415,6 +293,13 @@ namespace Opm
         /// Update for max oil saturation.                  
         void updateSatOilMax(const std::vector<double>& saturation);
 
+        /// Set capillary pressure scaling according to pressure diff. and initial water saturation.
+        /// \param[in]  saturation Array of n*numPhases saturation values.
+        /// \param[in]  pc         Array of n*numPhases capillary pressure values.
+        void setSwatInitScaling(const std::vector<double>& saturation,
+                      const std::vector<double>& pc);
+
+
     private:
         /// Initializes the properties.
         template <class CentroidIterator>
@@ -438,8 +323,13 @@ namespace Opm
                       const std::vector<int>& cells,
                       const double vap) const;
 
+        // Fills pvt_region_ with cellPvtRegionIdx_[cells].
+        void mapPvtRegions(const std::vector<int>& cells) const;
+
         RockFromDeck rock_;
-        std::unique_ptr<SaturationPropsInterface> satprops_;
+        // This has to be a shared pointer as we must
+        // be able to make a copy of *this in the parallel case.
+        std::shared_ptr<SaturationPropsInterface> satprops_;
 
         PhaseUsage phase_usage_;
         // bool has_vapoil_;
@@ -448,19 +338,14 @@ namespace Opm
         // The PVT region which is to be used for each cell
         std::vector<int> cellPvtRegionIdx_;
 
-        // The PVT properties. One object per PVT region and per
-        // active fluid phase.
+        // Used for storing the region-per-cell array computed in calls
+        // to pvt functions.
+        mutable std::vector<int> pvt_region_;
+
+        // The PVT properties. One object per active fluid phase.
         std::vector<std::shared_ptr<Opm::PvtInterface> > props_;
 
-        // The index of the PVT table which ought to be used for each
-        // cell. Eclipse does not seem to allow specifying fluid-phase
-        // specific table indices, so for the sake of simplicity, we
-        // don't do this either. (if it turns out that Eclipes does in
-        // fact support it or if it by some miracle gains this feature
-        // in the future, this attribute needs to become a vector of
-        // vectors of ints.)
-        std::vector<int> pvtTableIdx_;
-
+        // Densities, one std::array per PVT region.
         std::vector<std::array<double, BlackoilPhases::MaxNumPhases> > densities_;
         
         // VAPPARS

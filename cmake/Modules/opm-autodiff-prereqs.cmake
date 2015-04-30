@@ -24,5 +24,5 @@ set (opm-autodiff_DEPS
 	dune-fem;
 	opm-core REQUIRED"
 	# Eigen
-	"Eigen3 3.2.0 "
+	"Eigen3 3.2.0"
 	)
