@@ -363,7 +363,8 @@ namespace Opm
     DuneGrid<GridImpl>::dune2UnstructuredGrid( const GV& gridView,
                                                const GlobalIndexContainer& globalIndex,
                                                const int cartDims[ dimension ],
-                                               const bool faceTags )
+                                               const bool faceTags,
+                                               const bool onlyInteriorCells )
     {
         typedef double ctype;
         //typename Grid :: ctype ctype;
@@ -400,12 +401,14 @@ namespace Opm
                 {
                     const Intersection& intersection = *iit;
                     int nbIndex = -1;
+
                     // store face --> cell relation
                     if( intersection.neighbor() )
                     {
                         ElementPointer ep = intersection.outside();
                         const Element& neighbor = *ep;
-                        nbIndex = indexSet.index( neighbor );
+                        if( ! ( onlyInterior && neighbor.partitionType() != Dune::InteriorEntity ) )
+                          nbIndex = indexSet.index( neighbor );
                     }
 
                     FaceKey faceKey( elIndex, nbIndex );
@@ -502,7 +505,8 @@ namespace Opm
                         ElementPointer ep = intersection.outside();
                         const Element& neighbor = *ep;
 
-                        nbIndex = indexSet.index( neighbor );
+                        if( ! ( onlyInterior && neighbor.partitionType() != Dune::InteriorEntity ) )
+                            nbIndex = indexSet.index( neighbor );
                     }
                     FaceKey faceKey( elIndex, nbIndex );
                     faceIndex = faceIndexSet[ faceKey ];
@@ -544,8 +548,11 @@ namespace Opm
                     ElementPointer ep = intersection.outside();
                     const Element& neighbor = *ep;
 
-                    const int nbIndex = indexSet.index( neighbor );
-                    if( elIndex < nbIndex )
+                    int nbIndex = -1;
+                    if( ! ( onlyInterior && neighbor.partitionType() != Dune::InteriorEntity ) )
+                        nbIndex = indexSet.index( neighbor );
+
+                    if( nbIndex == -1 || elIndex < nbIndex )
                     {
                         ug->face_cells[ 2*faceIndex     ] = elIndex;
                         ug->face_cells[ 2*faceIndex + 1 ] = nbIndex;
