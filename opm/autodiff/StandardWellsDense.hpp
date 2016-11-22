@@ -84,14 +84,17 @@ namespace Opm {
                 , fluid_(nullptr)
                 , active_(nullptr)
                 , vfp_properties_(nullptr)
-                , well_perforation_densities_(wells_arg->well_connpos[wells_arg->number_of_wells])
-                , well_perforation_pressure_diffs_(wells_arg->well_connpos[wells_arg->number_of_wells])
-                , wellVariables_(wells_arg->number_of_wells * wells_arg->number_of_phases)
-                , F0_(wells_arg->number_of_wells * wells_arg->number_of_phases)
+                , well_perforation_densities_( wells_ ? wells_arg->well_connpos[wells_arg->number_of_wells] : 0)
+                , well_perforation_pressure_diffs_( wells_ ? wells_arg->well_connpos[wells_arg->number_of_wells] : 0)
+                , wellVariables_( wells_ ? (wells_arg->number_of_wells * wells_arg->number_of_phases) : 0)
+                , F0_(wells_ ? (wells_arg->number_of_wells * wells_arg->number_of_phases) : 0 )
               {
-                invDuneD_.setBuildMode( Mat::row_wise );
-                duneC_.setBuildMode( Mat::row_wise );
-                duneB_.setBuildMode( Mat::row_wise );
+                if( wells_ )
+                {
+                    invDuneD_.setBuildMode( Mat::row_wise );
+                    duneC_.setBuildMode( Mat::row_wise );
+                    duneB_.setBuildMode( Mat::row_wise );
+                }
               }
 
             void init(const BlackoilPropsAdInterface* fluid_arg,
@@ -685,6 +688,10 @@ namespace Opm {
 
 
             std::vector<double> residual() {
+                if( ! wellsActive() )
+                {
+                    return std::vector<double>();
+                }
 
                 const int np = numPhases();
                 const int nw = wells().number_of_wells;
