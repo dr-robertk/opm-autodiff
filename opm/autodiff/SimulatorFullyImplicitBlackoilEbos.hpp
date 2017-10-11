@@ -31,7 +31,6 @@
 #include <opm/autodiff/BlackoilWellModel.hpp>
 #include <opm/autodiff/RateConverter.hpp>
 #include <opm/autodiff/SimFIBODetails.hpp>
-#include <opm/autodiff/moduleVersion.hpp>
 #include <opm/simulators/timestepping/AdaptiveTimeStepping.hpp>
 #include <opm/core/utility/initHydroCarbonState.hpp>
 #include <opm/core/utility/StopWatch.hpp>
@@ -486,7 +485,7 @@ protected:
                             const FluidInPlace& currentFluidInPlace)
     {
         if (!timer.initialStep()) {
-            const std::string version = moduleVersionName();
+            const std::string version = OPM_SIMULATORS_VERSION;
             outputTimestampFIP(timer, version);
         }
         outputRegionFluidInPlace(originalFluidInPlace_.totals,
