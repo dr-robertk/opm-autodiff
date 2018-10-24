@@ -56,7 +56,7 @@
 #include <dune/common/parallel/mpihelper.hh>
 #endif
 
-BEGIN_PROPERTIES;
+BEGIN_PROPERTIES
 
 NEW_PROP_TAG(OutputMode);
 NEW_PROP_TAG(EnableDryRun);
@@ -70,7 +70,7 @@ SET_STRING_PROP(EclFlowProblem, EnableDryRun, "auto");
 
 SET_INT_PROP(EclFlowProblem, OutputInterval, 1);
 
-END_PROPERTIES;
+END_PROPERTIES
 
 namespace Opm
 {
@@ -255,6 +255,13 @@ namespace Opm
             mpi_rank_ = 0;
             mpi_size_ = 1;
 #endif
+
+#if _OPENMP
+            // if openMP is available, default to 2 threads per process.
+            if (!getenv("OMP_NUM_THREADS"))
+                omp_set_num_threads(std::min(2, omp_get_num_procs()));
+#endif
+
             typedef typename GET_PROP_TYPE(TypeTag, ThreadManager) ThreadManager;
             ThreadManager::init();
         }
@@ -425,9 +432,8 @@ namespace Opm
             }
 
             namespace fs = boost::filesystem;
-            fs::path output_path(".");
             const std::string& output_dir = eclState().getIOConfig().getOutputDir();
-
+            fs::path output_path(output_dir);
             fs::path deck_filename(EWOMS_GET_PARAM(TypeTag, std::string, EclDeckFileName));
             std::for_each(fs::directory_iterator(output_path),
                           fs::directory_iterator(),

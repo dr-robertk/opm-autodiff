@@ -10,12 +10,11 @@ BINPATH="$3"
 FILENAME="$4"
 ABS_TOL="$5"
 REL_TOL="$6"
-COMPARE_SUMMARY_COMMAND="$7"
-COMPARE_ECL_COMMAND="$8"
-OPM_PACK_COMMAND="$9"
-PARALLEL="${10}"
-EXE_NAME="${11}"
-shift 11
+COMPARE_ECL_COMMAND="$7"
+OPM_PACK_COMMAND="$8"
+PARALLEL="${9}"
+EXE_NAME="${10}"
+shift 10
 TEST_ARGS="$@"
 
 BASE_NAME=`basename ${TEST_ARGS}_RESTART.DATA`
@@ -30,9 +29,9 @@ else
   CMD_PREFIX=""
 fi
 if test "${EXE_NAME}" = "flow"; then
-    ${CMD_PREFIX} ${BINPATH}/${EXE_NAME} ${TEST_ARGS}.DATA --enable-adaptive-time-stepping=false --output-dir=${RESULT_PATH}
+    ${CMD_PREFIX} ${BINPATH}/${EXE_NAME} ${TEST_ARGS}.DATA --enable-adaptive-time-stepping=false --enable-opm-rst-file=true --output-dir=${RESULT_PATH}
 else
-    ${CMD_PREFIX} ${BINPATH}/${EXE_NAME} ${TEST_ARGS}.DATA timestep.adaptive=false output_dir=${RESULT_PATH}
+    ${CMD_PREFIX} ${BINPATH}/${EXE_NAME} ${TEST_ARGS}.DATA enable-opm-rst-file=true timestep.adaptive=false output_dir=${RESULT_PATH}
 fi
 
 test $? -eq 0 || exit 1
@@ -40,19 +39,19 @@ test $? -eq 0 || exit 1
 ${OPM_PACK_COMMAND} -o ${BASE_NAME} ${TEST_ARGS}_RESTART.DATA
 
 if test "${EXE_NAME}" = "flow"; then
-    ${CMD_PREFIX} ${BINPATH}/${EXE_NAME} ${BASE_NAME} --enable-adaptive-time-stepping=false --output-dir=${RESULT_PATH}
+    ${CMD_PREFIX} ${BINPATH}/${EXE_NAME} ${BASE_NAME} --enable-adaptive-time-stepping=false --enable-opm-rst-file=true --output-dir=${RESULT_PATH}
 else
-    ${CMD_PREFIX} ${BINPATH}/${EXE_NAME} ${BASE_NAME} timestep.adaptive=false output_dir=${RESULT_PATH}
+    ${CMD_PREFIX} ${BINPATH}/${EXE_NAME} ${BASE_NAME} enable-opm-rst-file=true timestep.adaptive=false output_dir=${RESULT_PATH}
 fi
 test $? -eq 0 || exit 1
 
 ecode=0
 echo "=== Executing comparison for summary file ==="
-${COMPARE_SUMMARY_COMMAND} -R ${RESULT_PATH}/${FILENAME} ${RESULT_PATH}/${FILENAME}_RESTART ${ABS_TOL} ${REL_TOL}
+${COMPARE_ECL_COMMAND} -R -t SMRY ${RESULT_PATH}/${FILENAME} ${RESULT_PATH}/${FILENAME}_RESTART ${ABS_TOL} ${REL_TOL}
 if [ $? -ne 0 ]
 then
   ecode=1
-  ${COMPARE_SUMMARY_COMMAND} -a -R ${RESULT_PATH}/${FILENAME} ${RESULT_PATH}/${FILENAME}_RESTART ${ABS_TOL} ${REL_TOL}
+  ${COMPARE_ECL_COMMAND} -a -R -t SMRY ${RESULT_PATH}/${FILENAME} ${RESULT_PATH}/${FILENAME}_RESTART ${ABS_TOL} ${REL_TOL}
 fi
 
 echo "=== Executing comparison for restart file ==="

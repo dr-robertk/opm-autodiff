@@ -12,19 +12,18 @@ BINPATH="$3"
 FILENAME="$4"
 ABS_TOL="$5"
 REL_TOL="$6"
-COMPARE_SUMMARY_COMMAND="$7"
-COMPARE_ECL_COMMAND="$8"
-EXE_NAME="${9}"
-shift 9
+COMPARE_ECL_COMMAND="$7"
+EXE_NAME="${8}"
+shift 8
 TEST_ARGS="$@"
 
 rm -Rf  ${RESULT_PATH}
 mkdir -p ${RESULT_PATH}
 cd ${RESULT_PATH}
 if test "${EXE_NAME}" = "flow"; then
-    ${BINPATH}/${EXE_NAME} ${TEST_ARGS} --enable-dry-run=true --output-dir=${RESULT_PATH}
+    ${BINPATH}/${EXE_NAME} ${TEST_ARGS} --enable-opm-rst-file=true --enable-dry-run=true --output-dir=${RESULT_PATH}
 else
-    ${BINPATH}/${EXE_NAME} ${TEST_ARGS} nosim=true output_dir=${RESULT_PATH}
+    ${BINPATH}/${EXE_NAME} ${TEST_ARGS} enable-opm-rst-file=true nosim=true output_dir=${RESULT_PATH}
 fi
 cd ..
 
