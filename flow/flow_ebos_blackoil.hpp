@@ -17,15 +17,48 @@
 #ifndef FLOW_EBOS_BLACKOIL_HPP
 #define FLOW_EBOS_BLACKOIL_HPP
 
-#include <opm/parser/eclipse/Deck/Deck.hpp>
-#include <opm/parser/eclipse/EclipseState/EclipseState.hpp>
-#include <opm/parser/eclipse/EclipseState/Schedule/Schedule.hpp>
-#include <opm/parser/eclipse/EclipseState/SummaryConfig/SummaryConfig.hpp>
+// Define making clear that the simulator supports AMG
+#define FLOW_SUPPORT_AMG 1
 
+#include <flow/flow_ebos_blackoil.hpp>
+
+#include <opm/material/common/ResetLocale.hpp>
+#include <opm/grid/CpGrid.hpp>
+#include <opm/autodiff/SimulatorFullyImplicitBlackoilEbos.hpp>
+#include <opm/autodiff/FlowMainEbos.hpp>
+
+#if HAVE_DUNE_FEM
+#include <dune/fem/misc/mpimanager.hh>
+#else
+#include <dune/common/parallel/mpihelper.hh>
+#endif
 
 namespace Opm {
-void flowEbosBlackoilSetDeck(Deck &deck, EclipseState& eclState, Schedule& schedule, SummaryConfig& summary_config);
-int flowEbosBlackoilMain(int argc, char** argv);
+
+void flowEbosBlackoilSetDeck(Deck &deck, EclipseState& eclState, Schedule& schedule, SummaryConfig& summaryConfig)
+{
+    typedef TTAG(EclFlowProblem) TypeTag;
+    typedef GET_PROP_TYPE(TypeTag, Vanguard) Vanguard;
+
+    Vanguard::setExternalDeck(&deck, &eclState, &schedule, &summaryConfig);
 }
 
-#endif // FLOW_EBOS_BLACKOIL_HPP
+// ----------------- Main program -----------------
+int flowEbosBlackoilMain(int argc, char** argv)
+{
+    // we always want to use the default locale, and thus spare us the trouble
+    // with incorrect locale settings.
+    Opm::resetLocale();
+
+#if HAVE_DUNE_FEM
+    Dune::Fem::MPIManager::initialize(argc, argv);
+#else
+    Dune::MPIHelper::instance(argc, argv);
+#endif
+
+    Opm::FlowMainEbos<TTAG(EclFlowProblem)> mainfunc;
+    return mainfunc.execute(argc, argv);
+}
+
+}
+#endif

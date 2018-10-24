@@ -17,15 +17,73 @@
 #ifndef FLOW_EBOS_OILWATER_POLYMER_HPP
 #define FLOW_EBOS_OILWATER_POLYMER_HPP
 
-#include <opm/parser/eclipse/Deck/Deck.hpp>
-#include <opm/parser/eclipse/EclipseState/EclipseState.hpp>
-#include <opm/parser/eclipse/EclipseState/Schedule/Schedule.hpp>
-#include <opm/parser/eclipse/EclipseState/SummaryConfig/SummaryConfig.hpp>
+// Define making clear that the simulator supports AMG
+#define FLOW_SUPPORT_AMG 1
 
+#include <flow/flow_ebos_oilwater_polymer.hpp>
+
+#include <opm/material/common/ResetLocale.hpp>
+#include <ewoms/models/blackoil/blackoiltwophaseindices.hh>
+
+#include <opm/grid/CpGrid.hpp>
+#include <opm/autodiff/SimulatorFullyImplicitBlackoilEbos.hpp>
+#include <opm/autodiff/FlowMainEbos.hpp>
+
+#if HAVE_DUNE_FEM
+#include <dune/fem/misc/mpimanager.hh>
+#else
+#include <dune/common/parallel/mpihelper.hh>
+#endif
+
+namespace Ewoms {
+namespace Properties {
+NEW_TYPE_TAG(EclFlowOilWaterPolymerProblem, INHERITS_FROM(EclFlowProblem));
+SET_BOOL_PROP(EclFlowOilWaterPolymerProblem, EnablePolymer, true);
+//! The indices required by the model
+//! The indices required by the model
+SET_PROP(EclFlowOilWaterPolymerProblem, Indices)
+{
+private:
+    // it is unfortunately not possible to simply use 'TypeTag' here because this leads
+    // to cyclic definitions of some properties. if this happens the compiler error
+    // messages unfortunately are *really* confusing and not really helpful.
+    typedef TTAG(EclFlowProblem) BaseTypeTag;
+    typedef typename GET_PROP_TYPE(BaseTypeTag, FluidSystem) FluidSystem;
+
+public:
+    typedef Ewoms::BlackOilTwoPhaseIndices<GET_PROP_VALUE(TypeTag, EnableSolvent),
+                                           GET_PROP_VALUE(TypeTag, EnablePolymer),
+                                           GET_PROP_VALUE(TypeTag, EnableEnergy),
+                                           /*PVOffset=*/0,
+                                           /*disabledCompIdx=*/FluidSystem::gasCompIdx> type;
+};
+}}
 
 namespace Opm {
-  void flowEbosOilWaterPolymerSetDeck(Deck& deck, EclipseState& eclState, Schedule& schedule, SummaryConfig& summary_config);
-  int flowEbosOilWaterPolymerMain(int argc, char** argv);
+void flowEbosOilWaterPolymerSetDeck(Deck& deck, EclipseState& eclState, Schedule& schedule, SummaryConfig& summaryConfig)
+{
+    typedef TTAG(EclFlowOilWaterPolymerProblem) TypeTag;
+    typedef GET_PROP_TYPE(TypeTag, Vanguard) Vanguard;
+
+    Vanguard::setExternalDeck(&deck, &eclState, &schedule, &summaryConfig);
 }
 
+// ----------------- Main program -----------------
+int flowEbosOilWaterPolymerMain(int argc, char** argv)
+{
+    // we always want to use the default locale, and thus spare us the trouble
+    // with incorrect locale settings.
+    Opm::resetLocale();
+
+#if HAVE_DUNE_FEM
+    Dune::Fem::MPIManager::initialize(argc, argv);
+#else
+    Dune::MPIHelper::instance(argc, argv);
+#endif
+
+    Opm::FlowMainEbos<TTAG(EclFlowOilWaterPolymerProblem)> mainfunc;
+    return mainfunc.execute(argc, argv);
+}
+
+}
 #endif // FLOW_EBOS_OILWATER_POLYMER_HPP

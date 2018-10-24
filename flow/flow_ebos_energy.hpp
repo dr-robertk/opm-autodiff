@@ -17,14 +17,51 @@
 #ifndef FLOW_EBOS_ENERGY_HPP
 #define FLOW_EBOS_ENERGY_HPP
 
-#include <opm/parser/eclipse/Deck/Deck.hpp>
-#include <opm/parser/eclipse/EclipseState/EclipseState.hpp>
-#include <opm/parser/eclipse/EclipseState/Schedule/Schedule.hpp>
-#include <opm/parser/eclipse/EclipseState/SummaryConfig/SummaryConfig.hpp>
+#include <flow/flow_ebos_energy.hpp>
+
+#include <opm/material/common/ResetLocale.hpp>
+#include <opm/grid/CpGrid.hpp>
+#include <opm/autodiff/SimulatorFullyImplicitBlackoilEbos.hpp>
+#include <opm/autodiff/FlowMainEbos.hpp>
+
+#if HAVE_DUNE_FEM
+#include <dune/fem/misc/mpimanager.hh>
+#else
+#include <dune/common/parallel/mpihelper.hh>
+#endif
+
+namespace Ewoms {
+namespace Properties {
+NEW_TYPE_TAG(EclFlowEnergyProblem, INHERITS_FROM(EclFlowProblem));
+SET_BOOL_PROP(EclFlowEnergyProblem, EnableEnergy, true);
+}}
 
 namespace Opm {
-void flowEbosEnergySetDeck(Deck &deck, EclipseState& eclState, Schedule& schedule, SummaryConfig& summaryConfig);
-int flowEbosEnergyMain(int argc, char** argv);
+void flowEbosEnergySetDeck(Deck &deck, EclipseState& eclState, Schedule& schedule, SummaryConfig& summaryConfig)
+{
+    typedef TTAG(EclFlowEnergyProblem) TypeTag;
+    typedef GET_PROP_TYPE(TypeTag, Vanguard) Vanguard;
+
+    Vanguard::setExternalDeck(&deck, &eclState, &schedule, &summaryConfig);
 }
 
+// ----------------- Main program -----------------
+int flowEbosEnergyMain(int argc, char** argv)
+{
+    // we always want to use the default locale, and thus spare us the trouble
+    // with incorrect locale settings.
+    Opm::resetLocale();
+
+    // initialize MPI, finalize is done automatically on exit
+#if HAVE_DUNE_FEM
+    Dune::Fem::MPIManager::initialize(argc, argv);
+#else
+    Dune::MPIHelper::instance(argc, argv).rank();
+#endif
+
+    Opm::FlowMainEbos<TTAG(EclFlowEnergyProblem)> mainfunc;
+    return mainfunc.execute(argc, argv);
+}
+
+}
 #endif // FLOW_EBOS_ENERGY_HPP
