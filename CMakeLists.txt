@@ -125,14 +125,34 @@ opm_add_test(flow
   LIBRARIES "opmsimulators"
   SOURCES
     flow/flow.cpp
-    flow/flow_ebos_blackoil.cpp
-    flow/flow_ebos_gasoil.cpp
-    flow/flow_ebos_oilwater.cpp
-    flow/flow_ebos_polymer.cpp
-    flow/flow_ebos_solvent.cpp
-    flow/flow_ebos_energy.cpp
-    flow/flow_ebos_oilwater_polymer.cpp)
 install(TARGETS flow DESTINATION bin)
+
+opm_add_test(flow_blackoil
+  ONLY_COMPILE
+  ALWAYS_ENABLE
+  DEPENDS "opmsimulators"
+  LIBRARIES "opmsimulators"
+  SOURCES
+    flow/flow_blackoil.cpp
+install(TARGETS flow_blackoil DESTINATION bin)
+
+opm_add_test(flow_femistl
+  ONLY_COMPILE
+  ALWAYS_ENABLE
+  DEPENDS "opmsimulators"
+  LIBRARIES "opmsimulators"
+  SOURCES
+    flow/flow_femistl.cpp
+install(TARGETS flow_femistl DESTINATION bin)
+
+opm_add_test(flow_fempetsc
+  ONLY_COMPILE
+  ALWAYS_ENABLE
+  DEPENDS "opmsimulators"
+  LIBRARIES "opmsimulators"
+  SOURCES
+    flow/flow_fempetsc.cpp
+install(TARGETS flow_fempetsc DESTINATION bin)
 
 include(OpmBashCompletion)
 opm_add_bash_completion(flow)

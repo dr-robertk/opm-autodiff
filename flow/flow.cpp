@@ -30,14 +30,6 @@
 #endif
 #endif
 
-#include <flow/flow_ebos_blackoil.hpp>
-#include <flow/flow_ebos_gasoil.hpp>
-#include <flow/flow_ebos_oilwater.hpp>
-#include <flow/flow_ebos_solvent.hpp>
-#include <flow/flow_ebos_polymer.hpp>
-#include <flow/flow_ebos_energy.hpp>
-#include <flow/flow_ebos_oilwater_polymer.hpp>
-
 #include <opm/autodiff/SimulatorFullyImplicitBlackoilEbos.hpp>
 #include <opm/autodiff/FlowMainEbos.hpp>
 #include <ewoms/common/propertysystem.hh>
@@ -66,25 +58,25 @@
 #endif
 
 #if ENABLE_FLOW_TWOPHASE
-#include <opm/simulators/flow_ebos_gasoil.cpp>
-#include <opm/simulators/flow_ebos_oilwater.cpp>
+#include <flow/flow_ebos_gasoil.hpp>
+#include <flow/flow_ebos_oilwater.hpp>
 #endif
 
 #if ENABLE_FLOW_POLYMER
-#include <opm/simulators/flow_ebos_polymer.cpp>
-#include <opm/simulators/flow_ebos_oilwater_polymer.cpp>
+#include <flow/flow_ebos_polymer.hpp>
+#include <flow/flow_ebos_oilwater_polymer.hpp>
 #endif
 
 #if ENABLE_FLOW_SOLVENT
-#include <opm/simulators/flow_ebos_solvent.cpp>
+#include <flow/flow_ebos_solvent.hpp>
 #endif
 
 #if ENABLE_FLOW_ENERGY
-#include <opm/simulators/flow_ebos_energy.cpp>
+#include <flow/flow_ebos_energy.hpp>
 #endif
 
 #if ENABLE_FLOW_BLACKOIL
-#include <opm/simulators/flow_ebos_blackoil.cpp>
+#include <flow/flow_ebos_blackoil.hpp>
 #endif
 
 BEGIN_PROPERTIES
