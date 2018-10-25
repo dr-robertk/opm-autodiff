@@ -224,19 +224,6 @@ list (APPEND EXAMPLE_SOURCE_FILES
   tutorials/sim_tutorial1.cpp
   )
 
-if(PETSc_FOUND)
-list (APPEND EXAMPLE_SOURCE_FILES
-   flow/flow_fempetsc.cpp
-   )
-endif()
-
-if(AMGXSOLVER_FOUND)
-list (APPEND EXAMPLE_SOURCE_FILES
-  flow/flow_amgxpetsc.cpp
-  )
-endif()
-
-
 if(SuiteSparse_FOUND)
   list(APPEND EXAMPLE_SOURCE_FILES tutorials/sim_tutorial2.cpp
                                    tutorials/sim_tutorial3.cpp
