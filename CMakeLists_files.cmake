@@ -131,6 +131,7 @@ list (APPEND TEST_SOURCE_FILES
   tests/test_blackoil_amg.cpp
   tests/test_block.cpp
   tests/test_boprops_ad.cpp
+  tests/test_convergencereport.cpp
   tests/test_graphcoloring.cpp
   tests/test_rateconverter.cpp
   tests/test_span.cpp
@@ -161,7 +162,6 @@ list (APPEND TEST_SOURCE_FILES
   tests/test_wellcontrols.cpp
   tests/test_wellsgroup.cpp
   tests/test_wellcollection.cpp
-  tests/test_pinchprocessor.cpp
   tests/test_anisotropiceikonal.cpp
   tests/test_stoppedwells.cpp
   tests/test_relpermdiagnostics.cpp
@@ -197,7 +197,6 @@ list (APPEND TEST_DATA_FILES
   tests/satfuncEPS_D.DATA
   tests/testBlackoilState1.DATA
   tests/testBlackoilState2.DATA
-  tests/testPinch1.DATA
   tests/wells_manager_data.data
   tests/wells_manager_data_expanded.data
   tests/wells_manager_data_wellSTOP.data
@@ -440,6 +439,7 @@ list (APPEND PUBLIC_HEADER_FILES
   opm/simulators/timestepping/AdaptiveTimeStepping.hpp
   opm/simulators/timestepping/AdaptiveTimeStepping_impl.hpp
   opm/simulators/timestepping/AdaptiveTimeSteppingEbos.hpp
+  opm/simulators/timestepping/ConvergenceReport.hpp
   opm/simulators/timestepping/TimeStepControl.hpp
   opm/simulators/timestepping/TimeStepControlInterface.hpp
   opm/simulators/timestepping/SimulatorTimer.hpp
