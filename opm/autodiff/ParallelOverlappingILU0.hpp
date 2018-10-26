@@ -401,7 +401,7 @@ namespace Opm
                 newRow[ordering[col.index()]] = *col;
             }
         }
-        // call decomposition on pattern        
+        // call decomposition on pattern
         switch ( milu )
         {
         case MILU_VARIANT::MILU_1:
@@ -485,7 +485,7 @@ namespace Opm
             if( j.index() == iIndex )
             {
               inv[ row ] = (*j);
-	      break;
+              break;
             }
             else if ( j.index() >= i.index() )
             {
