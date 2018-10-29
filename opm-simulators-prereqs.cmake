@@ -7,6 +7,8 @@ set (opm-simulators_CONFIG_VAR
   HAVE_MPI
   HAVE_PETSC
   HAVE_AMGXSOLVER
+  HAVE_VIENNACL
+  HAVE_OPENCL
   HAVE_SUITESPARSE_UMFPACK_H
   HAVE_DUNE_ISTL
   DUNE_ISTL_VERSION_MAJOR
@@ -36,6 +38,8 @@ set (opm-simulators_DEPS
   "PETSc"
   # AMGX wrapper using PETSc
   "AmgXSolver"
+  # ViennaCL
+  "ViennaCL"
   # Tim Davis' SuiteSparse archive
   "SuiteSparse COMPONENTS umfpack"
   # SuperLU direct solver
