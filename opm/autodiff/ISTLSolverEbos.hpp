@@ -96,8 +96,8 @@ namespace Detail
 public:
         typedef typename GET_PROP_TYPE(TypeTag, Indices) Indices;
         static const int numEq = Indices::numEq;
-#if USE_DUNE_FEM_PETSC_SOLVERS
         typedef Dune::MatrixBlock< Scalar, numEq, numEq> Block;
+#if USE_DUNE_FEM_PETSC_SOLVERS
         typedef Ewoms::Linear::ISTLMatrixBackend< Block > MatrixBackend;
         typedef typename MatrixBackend :: Matrix Matrix;
 #else
@@ -238,10 +238,8 @@ public:
 	// 3x3 matrix block inversion was unstable at least 2.3 until and including
 	// 2.5.0. There may still be some issue with the 4x4 matrix block inversion
 	// we therefore still use the block inversion in OPM
-        typedef ParallelOverlappingILU0<Dune::BCRSMatrix<Dune::MatrixBlock<typename Matrix::field_type,
-                                                                           Matrix::block_type::rows,
-                                                                           Matrix::block_type::cols> >,
-                                        				   Vector, Vector> SeqPreconditioner;
+        typedef ParallelOverlappingILU0<Dune::BCRSMatrix< Block >,
+                                        Vector, Vector> SeqPreconditioner;
 
 
         template <class Operator>
@@ -263,9 +261,7 @@ public:
         // including 2.5.0
         typedef ParallelOverlappingILU0<Matrix,Vector,Vector,Comm> ParPreconditioner;
 #else
-        typedef ParallelOverlappingILU0<Dune::BCRSMatrix<Dune::MatrixBlock<typename Matrix::field_type,
-                                                                           Matrix::block_type::rows,
-                                                                           Matrix::block_type::cols> >,
+        typedef ParallelOverlappingILU0<Dune::BCRSMatrix<Block> >,
                                         Vector, Vector, Comm> ParPreconditioner;
 #endif
         template <class Operator>
