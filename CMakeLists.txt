@@ -124,7 +124,7 @@ opm_add_test(flow
   DEPENDS "opmsimulators"
   LIBRARIES "opmsimulators"
   SOURCES
-    flow/flow.cpp
+  flow/flow.cpp)
 install(TARGETS flow DESTINATION bin)
 
 opm_add_test(flow_blackoil
@@ -133,7 +133,7 @@ opm_add_test(flow_blackoil
   DEPENDS "opmsimulators"
   LIBRARIES "opmsimulators"
   SOURCES
-    flow/flow_blackoil.cpp
+  flow/flow_blackoil.cpp)
 install(TARGETS flow_blackoil DESTINATION bin)
 
 opm_add_test(flow_femistl
@@ -142,7 +142,7 @@ opm_add_test(flow_femistl
   DEPENDS "opmsimulators"
   LIBRARIES "opmsimulators"
   SOURCES
-    flow/flow_femistl.cpp
+  flow/flow_femistl.cpp)
 install(TARGETS flow_femistl DESTINATION bin)
 
 opm_add_test(flow_fempetsc
@@ -151,9 +151,17 @@ opm_add_test(flow_fempetsc
   DEPENDS "opmsimulators"
   LIBRARIES "opmsimulators"
   SOURCES
-    flow/flow_fempetsc.cpp
+  flow/flow_fempetsc.cpp)
 install(TARGETS flow_fempetsc DESTINATION bin)
+
+opm_add_test(flow_femviennacl
+  ONLY_COMPILE
+  ALWAYS_ENABLE
+  DEPENDS "opmsimulators"
+  LIBRARIES "opmsimulators"
+  SOURCES
+  flow/flow_femviennacl.cpp)
+install(TARGETS flow_femviennacl DESTINATION bin)
 
 include(OpmBashCompletion)
 opm_add_bash_completion(flow)
-
