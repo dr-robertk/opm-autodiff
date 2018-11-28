@@ -622,7 +622,7 @@ namespace Opm
         // do the local inversion of D.
         try
         {
-            Dune::ISTLUtility::invertMatrix(invDuneD_[0][0]);
+            Ewoms::MatrixBlockHelp::invertMatrix(invDuneD_[0][0]);
         }
         catch( ... )
         {

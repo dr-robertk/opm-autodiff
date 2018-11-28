@@ -401,7 +401,7 @@ namespace Opm
                 newRow[ordering[col.index()]] = *col;
             }
         }
-        // call decomposition on pattern        
+        // call decomposition on pattern
         switch ( milu )
         {
         case MILU_VARIANT::MILU_1:
@@ -444,18 +444,16 @@ namespace Opm
 
         // Count the lower and upper matrix entries.
         size_type numLower = 0;
-        size_type numUpper = 0;
         const auto endi = A.end();
-        for (auto i = A.begin(); i != endi; ++i) {
+        for (auto i = A.begin(); i != endi; ++i)
+        {
           const size_type iIndex = i.index();
-          size_type numLowerRow = 0;
-          for (auto j = (*i).begin(); j.index() < iIndex; ++j) {
-              ++numLowerRow;
+          // eliminate entries left of diagonal; store L factor
+          for (auto j=(*i).begin(); j.index() < iIndex; ++j )
+          {
+            ++numLower;
           }
-          numLower += numLowerRow;
-          numUpper += (*i).size() - numLowerRow - 1;
         }
-        assert(numLower + numUpper + A.N() == A.nonzeroes());
 
         lower.reserveAdditional( numLower );
 
@@ -483,6 +481,7 @@ namespace Opm
         colcount = 0;
         upper.rows_[ 0 ] = colcount ;
 
+        size_type numUpper = A.nonzeroes() - numLower - A.N();
         upper.reserveAdditional( numUpper );
 
         // NOTE: upper and inv store entries in reverse order, reverse here
