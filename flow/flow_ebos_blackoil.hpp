@@ -33,11 +33,27 @@
 #include <dune/common/parallel/mpihelper.hh>
 #endif
 
+#include <ewoms/disc/sofv/sofvdiscretization.hh>
+
+namespace Ewoms {
+namespace Properties {
+NEW_TYPE_TAG(EclFlowProblem2, INHERITS_FROM(EclFlowProblem));
+SET_TAG_PROP(EclFlowProblem2, SpatialDiscretizationSplice, SofvDiscretization);
+SET_PROP(EclFlowProblem2, Stencil)
+{
+public:
+    typedef Ewoms::SofvStencil<TypeTag> type;
+};
+}}
+
+
+
 namespace Opm {
 
 void flowEbosBlackoilSetDeck(Deck &deck, EclipseState& eclState, Schedule& schedule, SummaryConfig& summaryConfig)
 {
-    typedef TTAG(EclFlowProblem) TypeTag;
+    //typedef TTAG(EclFlowProblem) TypeTag;
+    typedef TTAG(EclFlowProblem2) TypeTag;
     typedef GET_PROP_TYPE(TypeTag, Vanguard) Vanguard;
 
     Vanguard::setExternalDeck(&deck, &eclState, &schedule, &summaryConfig);
@@ -56,7 +72,8 @@ int flowEbosBlackoilMain(int argc, char** argv)
     Dune::MPIHelper::instance(argc, argv);
 #endif
 
-    Opm::FlowMainEbos<TTAG(EclFlowProblem)> mainfunc;
+    //Opm::FlowMainEbos<TTAG(EclFlowProblem)> mainfunc;
+    Opm::FlowMainEbos<TTAG(EclFlowProblem2)> mainfunc;
     return mainfunc.execute(argc, argv);
 }
 

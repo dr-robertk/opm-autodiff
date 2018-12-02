@@ -30,10 +30,20 @@
 #include <dune/common/parallel/mpihelper.hh>
 #endif
 
+#include <ewoms/disc/sofv/sofvdiscretization.hh>
+
 namespace Ewoms {
 namespace Properties {
 NEW_TYPE_TAG(EclFlowSolventProblem, INHERITS_FROM(EclFlowProblem));
 SET_BOOL_PROP(EclFlowSolventProblem, EnableSolvent, true);
+SET_TAG_PROP(EclFlowSolventProblem, SpatialDiscretizationSplice, SofvDiscretization);
+SET_PROP(EclFlowSolventProblem, Stencil)
+{
+public:
+    typedef Ewoms::SofvStencil<TypeTag> type;
+};
+
+
 }}
 
 namespace Opm {

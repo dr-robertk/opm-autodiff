@@ -35,10 +35,21 @@
 #include <dune/common/parallel/mpihelper.hh>
 #endif
 
+#include <ewoms/disc/sofv/sofvdiscretization.hh>
+
 namespace Ewoms {
 namespace Properties {
 NEW_TYPE_TAG(EclFlowOilWaterPolymerProblem, INHERITS_FROM(EclFlowProblem));
 SET_BOOL_PROP(EclFlowOilWaterPolymerProblem, EnablePolymer, true);
+
+SET_TAG_PROP(EclFlowOilWaterPolymerProblem, SpatialDiscretizationSplice, SofvDiscretization);
+SET_PROP(EclFlowOilWaterPolymerProblem, Stencil)
+{
+public:
+    typedef Ewoms::SofvStencil<TypeTag> type;
+};
+
+
 //! The indices required by the model
 //! The indices required by the model
 SET_PROP(EclFlowOilWaterPolymerProblem, Indices)
