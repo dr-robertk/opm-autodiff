@@ -136,6 +136,15 @@ opm_add_test(flow_blackoil
   flow/flow_blackoil.cpp)
 install(TARGETS flow_blackoil DESTINATION bin)
 
+opm_add_test(flow_solvent
+  ONLY_COMPILE
+  ALWAYS_ENABLE
+  DEPENDS "opmsimulators"
+  LIBRARIES "opmsimulators"
+  SOURCES
+  flow/flow_solvent.cpp)
+install(TARGETS flow_solvent DESTINATION bin)
+
 opm_add_test(flow_femistl
   ONLY_COMPILE
   ALWAYS_ENABLE
