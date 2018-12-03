@@ -2209,9 +2209,9 @@ namespace Opm
         {
             typedef typename TA :: size_type size_type;
             typedef typename TA :: field_type K;
-            assert( A.rows() == B.rows() );
-            assert( A.cols() == ret.rows() );
-            assert( B.cols() == ret.cols() );
+            assert( A.rows == B.rows );
+            assert( A.cols == ret.rows );
+            assert( B.cols == ret.cols );
 
             const size_type n = A.rows;
             const size_type m = ret.rows;
