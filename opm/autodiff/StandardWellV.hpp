@@ -25,7 +25,6 @@
 
 
 #include <opm/autodiff/WellInterface.hpp>
-#include <opm/autodiff/ISTLSolverEbos.hpp>
 #include <opm/autodiff/RateConverter.hpp>
 
 #include <opm/material/densead/DynamicEvaluation.hpp>

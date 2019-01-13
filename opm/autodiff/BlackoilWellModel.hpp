@@ -102,7 +102,7 @@ namespace Opm {
 #else
             typedef Dune::FieldMatrix<Scalar, numEq, numEq > MatrixBlockType;
 #endif
-            typedef typename SparseMatrixAdapter::IstlMatrix Mat;
+            // typedef typename SparseMatrixAdapter::IstlMatrix Mat;
 
             typedef Ewoms::BlackOilPolymerModule<TypeTag> PolymerModule;
 

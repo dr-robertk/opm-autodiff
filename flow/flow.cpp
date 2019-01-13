@@ -20,14 +20,50 @@
 */
 #include "config.h"
 
-#include <flow/flow_ebos_blackoil.hpp>
+#if HAVE_DUNE_FEM && HAVE_PETSC
+#if FLOW_USE_DUNE_FEM_PETSC
+#define USE_DUNE_FEM_SOLVERS 1
+#define USE_DUNE_FEM_PETSC_SOLVERS 1
+#elif FLOW_USE_DUNE_FEM_ISTL
+#define USE_DUNE_FEM_SOLVERS 1
+#define USE_DUNE_FEM_ISTL_SOLVERS 1
+#elif FLOW_USE_DUNE_FEM_VIENNACL && HAVE_VIENNACL
+#define USE_DUNE_FEM_SOLVERS 1
+#define USE_DUNE_FEM_VIENNACL_SOLVERS 1
+#endif
+#endif
+
+#ifndef FLOW_SINGLE_PURPOSE
+#define ENABLE_FLOW_TWOPHASE 1
+#define ENABLE_FLOW_POLYMER 1
+#define ENABLE_FLOW_SOLVENT 1
+#define ENABLE_FLOW_ENERGY 1
+#define ENABLE_FLOW_BLACKOIL 1
+#endif
+
+#if ENABLE_FLOW_TWOPHASE
 #include <flow/flow_ebos_gasoil.hpp>
 #include <flow/flow_ebos_oilwater.hpp>
-#include <flow/flow_ebos_solvent.hpp>
+#endif
+
+#if ENABLE_FLOW_POLYMER
 #include <flow/flow_ebos_polymer.hpp>
-#include <flow/flow_ebos_energy.hpp>
 #include <flow/flow_ebos_oilwater_polymer.hpp>
 #include <flow/flow_ebos_oilwater_polymer_injectivity.hpp>
+#endif
+
+#if ENABLE_FLOW_SOLVENT
+#include <flow/flow_ebos_solvent.hpp>
+#endif
+
+#if ENABLE_FLOW_ENERGY
+#include <flow/flow_ebos_energy.hpp>
+#endif
+
+#if ENABLE_FLOW_BLACKOIL
+#include <flow/flow_ebos_blackoil.hpp>
+#include <flow/flow_ebos_blackoil.cpp>
+#endif
 
 #include <opm/autodiff/SimulatorFullyImplicitBlackoilEbos.hpp>
 #include <opm/autodiff/FlowMainEbos.hpp>
@@ -197,8 +233,11 @@ int main(int argc, char** argv)
         // TODO: make sure that no illegal combinations like thermal and twophase are
         //       requested.
 
+        if(false)
+        {}
+#if ENABLE_FLOW_TWOPHASE
         // Twophase cases
-        if( phases.size() == 2 ) {
+        else if( phases.size() == 2 ) {
             // oil-gas
             if (phases.active( Opm::Phase::GAS ))
             {
@@ -217,6 +256,8 @@ int main(int argc, char** argv)
                 return EXIT_FAILURE;
             }
         }
+#endif
+#if ENABLE_FLOW_POLYMER
         // Polymer case
         else if ( phases.active( Opm::Phase::POLYMER ) ) {
 
@@ -243,21 +284,28 @@ int main(int argc, char** argv)
                 return Opm::flowEbosPolymerMain(argc, argv);
             }
         }
+#endif
+#if ENABLE_FLOW_SOLVENT
         // Solvent case
         else if ( phases.active( Opm::Phase::SOLVENT ) ) {
             Opm::flowEbosSolventSetDeck(*deck, *eclipseState);
             return Opm::flowEbosSolventMain(argc, argv);
         }
+#endif
+#if ENABLE_FLOW_ENERGY
         // Energy case
         else if (eclipseState->getSimulationConfig().isThermal()) {
             Opm::flowEbosEnergySetDeck(*deck, *eclipseState);
             return Opm::flowEbosEnergyMain(argc, argv);
         }
+#endif
+#if ENABLE_FLOW_BLACKOIL
         // Blackoil case
         else if( phases.size() == 3 ) {
             Opm::flowEbosBlackoilSetDeck(*deck, *eclipseState);
             return Opm::flowEbosBlackoilMain(argc, argv);
         }
+#endif
         else
         {
             if (outputCout)

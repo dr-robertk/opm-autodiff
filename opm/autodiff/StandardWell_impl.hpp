@@ -2605,7 +2605,7 @@ namespace Opm
 
     template<typename TypeTag>
     void
-    StandardWell<TypeTag>::addWellContributions(Mat& mat) const
+    StandardWell<TypeTag>::addWellContributions(SparseMatrixAdapter& mat) const
     {
         // We need to change matrx A as follows
         // A -= C^T D^-1 B

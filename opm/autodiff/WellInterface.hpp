@@ -90,8 +90,9 @@ namespace Opm
 
         typedef Dune::FieldVector<Scalar, numEq    > VectorBlockType;
         typedef Dune::FieldMatrix<Scalar, numEq, numEq > MatrixBlockType;
-        typedef typename SparseMatrixAdapter::IstlMatrix Mat;
-        typedef Dune::BlockVector<VectorBlockType> BVector;
+
+        typedef Dune::BCRSMatrix< MatrixBlockType >  Mat;
+        typedef Dune::BlockVector<VectorBlockType>   BVector;
         typedef DenseAd::Evaluation<double, /*size=*/numEq> Eval;
 
         typedef Ewoms::BlackOilPolymerModule<TypeTag> PolymerModule;
@@ -200,7 +201,7 @@ namespace Opm
         void calculateReservoirRates(WellState& well_state) const;
 
         // Add well contributions to matrix
-        virtual void addWellContributions(Mat&) const
+        virtual void addWellContributions(SparseMatrixAdapter&) const
         {}
 
         void addCellRates(RateVector& rates, int cellIdx) const;

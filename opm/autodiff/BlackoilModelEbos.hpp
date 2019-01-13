@@ -69,7 +69,7 @@
 
 BEGIN_PROPERTIES
 
-NEW_TYPE_TAG(EclFlowProblem, INHERITS_FROM(BlackOilModel, EclBaseProblem, FlowNonLinearSolver, FlowIstlSolver, FlowModelParameters, FlowTimeSteppingParameters));
+NEW_TYPE_TAG(EclFlowProblem, INHERITS_FROM(BlackOilModel, EclBaseProblem, FlowNonLinearSolver, FemSolverBackend, FlowModelParameters, FlowTimeSteppingParameters));
 SET_STRING_PROP(EclFlowProblem, OutputDir, "");
 SET_BOOL_PROP(EclFlowProblem, EnableDebuggingChecks, false);
 // default in flow is to formulate the equations in surface volumes
@@ -86,7 +86,7 @@ SET_BOOL_PROP(EclFlowProblem, EnableTemperature, true);
 SET_BOOL_PROP(EclFlowProblem, EnableEnergy, false);
 
 SET_TYPE_PROP(EclFlowProblem, EclWellModel, Opm::BlackoilWellModel<TypeTag>);
-SET_TAG_PROP(EclFlowProblem, LinearSolverSplice, FlowIstlSolver);
+//SET_TAG_PROP(EclFlowProblem, LinearSolverSplice, FlowIstlSolver);
 
 
 END_PROPERTIES
@@ -130,10 +130,10 @@ namespace Opm {
 
         typedef Dune::FieldVector<Scalar, numEq >        VectorBlockType;
         typedef typename SparseMatrixAdapter::MatrixBlock MatrixBlockType;
-        typedef typename SparseMatrixAdapter::IstlMatrix Mat;
+        // typedef typename SparseMatrixAdapter::IstlMatrix Mat;
         typedef Dune::BlockVector<VectorBlockType>      BVector;
 
-        typedef ISTLSolverEbos<TypeTag> ISTLSolverType;
+        //typedef ISTLSolverEbos<TypeTag> ISTLSolverType;
         //typedef typename SolutionVector :: value_type            PrimaryVariables ;
 
         // ---------  Public methods  ---------
@@ -474,7 +474,7 @@ namespace Opm {
             // r -= B^T * D^-1 r_well
             wellModel().apply(ebosResid);
             if (param_.matrix_add_well_contributions_) {
-                wellModel().addWellContributions(ebosJac.istlMatrix());
+                wellModel().addWellContributions(ebosJac);
             }
 
             // set initial guess
@@ -849,17 +849,19 @@ namespace Opm {
         }
 
     protected:
+        /*
         const ISTLSolverType& istlSolver() const
         {
             assert( istlSolver_ );
             return *istlSolver_;
         }
+        */
 
         // ---------  Data members  ---------
 
         Simulator& ebosSimulator_;
         const Grid&            grid_;
-        const ISTLSolverType*  istlSolver_;
+        //const ISTLSolverType*  istlSolver_;
         const PhaseUsage phaseUsage_;
         const bool has_disgas_;
         const bool has_vapoil_;
