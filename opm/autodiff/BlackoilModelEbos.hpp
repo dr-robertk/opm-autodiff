@@ -477,6 +477,8 @@ namespace Opm {
                 wellModel().addWellContributions(ebosJac);
             }
 
+            ebosSimulator_.model().linearizer().finalize();
+
             // set initial guess
             x = 0.0;
 
