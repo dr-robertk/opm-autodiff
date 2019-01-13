@@ -2603,34 +2603,65 @@ namespace Opm
         }
     }
 
+
+    namespace Detail
+    {
+        //! calculates ret = -(A^T * B)
+        //! TA, TB, and TC are not necessarily FieldMatrix, therefore template
+        //! arguments.
+        template< class TA, class TB, class TC >
+        static inline void negativeMultMatrixTransposed ( const TA &A, // n x m
+                                                          const TB &B, // n x p
+                                                          TC &ret )    // m x p
+        {
+            typedef typename TA :: size_type size_type;
+            typedef typename TA :: field_type K;
+            assert( A.N() == B.N() );
+            assert( A.M() == ret.N() );
+            assert( B.M() == ret.M() );
+
+            const size_type n = A.N();
+            const size_type m = ret.N();
+            const size_type p = B.M();
+            for( size_type i = 0; i < m; ++i )
+            {
+                for( size_type j = 0; j < p; ++j )
+                {
+                    ret[ i ][ j ] = K( 0 );
+                    for( size_type k = 0; k < n; ++k )
+                        ret[ i ][ j ] -= A[ k ][ i ] * B[ k ][ j ];
+                }
+            }
+        }
+    }
+
+
+
     template<typename TypeTag>
     void
-    StandardWell<TypeTag>::addWellContributions(SparseMatrixAdapter& mat) const
+    StandardWell<TypeTag>::addWellContributions(SparseMatrixAdapter& jacobian) const
     {
         // We need to change matrx A as follows
         // A -= C^T D^-1 B
         // D is diagonal
         // B and C have 1 row, nc colums and nonzero
         // at (0,j) only if this well has a perforation at cell j.
+        typedef typename SparseMatrixAdapter :: MatrixBlock MatrixBlock;
+        MatrixBlock tmp1;
+
+        Dune::FieldMatrix<Scalar, numWellEq, numEq> tmp;
 
         for ( auto colC = duneC_[0].begin(), endC = duneC_[0].end(); colC != endC; ++colC )
         {
             const auto row_index = colC.index();
-            auto& row = mat[row_index];
-            auto col = row.begin();
 
             for ( auto colB = duneB_[0].begin(), endB = duneB_[0].end(); colB != endB; ++colB )
             {
                 const auto col_index = colB.index();
-                // Move col to index col_index
-                while ( col != row.end() && col.index() < col_index ) ++col;
-                assert(col != row.end() && col.index() == col_index);
 
-                Dune::FieldMatrix<Scalar, numWellEq, numEq> tmp;
-                typename Mat::block_type tmp1;
                 Dune::FMatrixHelp::multMatrix(invDuneD_[0][0],  (*colB), tmp);
-                Detail::multMatrixTransposed((*colC), tmp, tmp1);
-                (*col) -= tmp1;
+                Detail::negativeMultMatrixTransposed((*colC), tmp, tmp1);
+                jacobian.addToBlock( row_index, col_index, tmp1 );
             }
         }
     }

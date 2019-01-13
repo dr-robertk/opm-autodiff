@@ -50,6 +50,7 @@ namespace Opm
         using typename Base::Indices;
         using typename Base::PolymerModule;
         using typename Base::RateConverterType;
+        using typename Base::SparseMatrixAdapter;
 
         using Base::numEq;
 
@@ -101,7 +102,6 @@ namespace Opm
         using Base::Oil;
         using Base::Gas;
 
-        using typename Base::Mat;
         using typename Base::BVector;
         using typename Base::Eval;
 
