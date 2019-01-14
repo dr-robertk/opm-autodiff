@@ -70,7 +70,7 @@ SET_INT_PROP(FlowModelParameters, MaxStrictIter, 8);
 SET_BOOL_PROP(FlowModelParameters, SolveWelleqInitially, true);
 SET_BOOL_PROP(FlowModelParameters, UpdateEquationsScaling, false);
 SET_BOOL_PROP(FlowModelParameters, UseUpdateStabilization, true);
-SET_BOOL_PROP(FlowModelParameters, MatrixAddWellContributions, false);
+SET_BOOL_PROP(FlowModelParameters, MatrixAddWellContributions, true);
 SET_SCALAR_PROP(FlowModelParameters, TolerancePressureMsWells, 0.01 *1e5);
 SET_SCALAR_PROP(FlowModelParameters, MaxPressureChangeMsWells, 2.0 *1e5);
 SET_BOOL_PROP(FlowModelParameters, UseInnerIterationsMsWells, true);
@@ -176,6 +176,13 @@ namespace Opm
             update_equations_scaling_ = EWOMS_GET_PARAM(TypeTag, bool, UpdateEquationsScaling);
             use_update_stabilization_ = EWOMS_GET_PARAM(TypeTag, bool, UseUpdateStabilization);
             matrix_add_well_contributions_ = EWOMS_GET_PARAM(TypeTag, bool, MatrixAddWellContributions);
+#ifdef USE_DUNE_FEM_SOLVERS
+            if( !matrix_add_well_contributions_ )
+            {
+                std::cerr<<"FemSolverBackend only works with --matrix-add-well-contributions=true" << std::endl;
+                std::abort();
+            }
+#endif
 
             deck_file_name_ = EWOMS_GET_PARAM(TypeTag, std::string, EclDeckFileName);
         }

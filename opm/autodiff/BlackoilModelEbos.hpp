@@ -69,9 +69,13 @@
 
 BEGIN_PROPERTIES
 
-#ifdef USE_USE_DUNE_FEM_SOLVERS
-NEW_TYPE_TAG(EclFlowProblem, INHERITS_FROM(BlackOilModel, EclBaseProblem, FlowNonLinearSolver, FemSolverBackend, FlowModelParameters, FlowTimeSteppingParameters));
-#else
+#ifdef USE_DUNE_FEM_SOLVERS
+#if USE_AMGX_SOLVERS // AmgXSolverBackend
+    NEW_TYPE_TAG(EclFlowProblem, INHERITS_FROM(BlackOilModel, EclBaseProblem, FlowNonLinearSolver, AmgXSolverBackend, FlowModelParameters, FlowTimeSteppingParameters));
+#else // FemSolverBackend
+    NEW_TYPE_TAG(EclFlowProblem, INHERITS_FROM(BlackOilModel, EclBaseProblem, FlowNonLinearSolver, FemSolverBackend, FlowModelParameters, FlowTimeSteppingParameters));
+#endif
+#else // Default ISTL solvers
 NEW_TYPE_TAG(EclFlowProblem, INHERITS_FROM(BlackOilModel, EclBaseProblem, FlowNonLinearSolver, FlowIstlSolver, FlowModelParameters, FlowTimeSteppingParameters));
 #endif
 SET_STRING_PROP(EclFlowProblem, OutputDir, "");
