@@ -71,6 +71,7 @@ BEGIN_PROPERTIES
 
 #ifdef USE_DUNE_FEM_SOLVERS
 #if USE_AMGX_SOLVERS // AmgXSolverBackend
+#warning "Flow: Using AMGX solver backend"
     NEW_TYPE_TAG(EclFlowProblem, INHERITS_FROM(BlackOilModel, EclBaseProblem, FlowNonLinearSolver, AmgXSolverBackend, FlowModelParameters, FlowTimeSteppingParameters));
 #else // FemSolverBackend
     NEW_TYPE_TAG(EclFlowProblem, INHERITS_FROM(BlackOilModel, EclBaseProblem, FlowNonLinearSolver, FemSolverBackend, FlowModelParameters, FlowTimeSteppingParameters));
