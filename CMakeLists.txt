@@ -78,6 +78,9 @@ include (CMakeLists_files.cmake)
 macro (config_hook)
 	opm_need_version_of ("dune-common")
 	opm_need_version_of ("dune-istl")
+	opm_need_version_of ("dune-geometry")
+	opm_need_version_of ("dune-grid")
+	opm_need_version_of ("dune-fem")
 	opm_need_version_of ("ewoms")
 endmacro (config_hook)
 
@@ -138,6 +141,36 @@ add_test(NAME flow__version
 set_tests_properties(flow__version PROPERTIES
                      PASS_REGULAR_EXPRESSION "${${project}_LABEL}")
 
+
+opm_add_test(flow_amgxpetsc
+  ONLY_COMPILE
+  ALWAYS_ENABLE
+  DEPENDS "opmsimulators"
+  LIBRARIES "opmsimulators"
+  SOURCES
+    flow/flow_amgxpetsc.cpp
+		flow/flow_ebos_blackoil.cpp)
+install(TARGETS flow_amgxpetsc DESTINATION bin)
+
+opm_add_test(flow_fempetsc
+  ONLY_COMPILE
+  ALWAYS_ENABLE
+  DEPENDS "opmsimulators"
+  LIBRARIES "opmsimulators"
+  SOURCES
+    flow/flow_fempetsc.cpp
+		flow/flow_ebos_blackoil.cpp)
+install(TARGETS flow_fempetsc DESTINATION bin)
+
+opm_add_test(flow_blackoil
+  ONLY_COMPILE
+  ALWAYS_ENABLE
+  DEPENDS "opmsimulators"
+  LIBRARIES "opmsimulators"
+  SOURCES
+    flow/flow_blackoil.cpp
+		flow/flow_ebos_blackoil.cpp)
+install(TARGETS flow_blackoil DESTINATION bin)
 
 
 include(OpmBashCompletion)

@@ -20,6 +20,11 @@
 */
 #include "config.h"
 
+#if USE_AMGX_SOLVERS && ! HAVE_AMGXSOLVER
+#error "AmgXSolver is supposed to be used but package was not found!"
+#endif
+
+
 #if HAVE_DUNE_FEM && HAVE_PETSC
 #if FLOW_USE_DUNE_FEM_PETSC
 #define USE_DUNE_FEM_SOLVERS 1
@@ -62,7 +67,6 @@
 
 #if ENABLE_FLOW_BLACKOIL
 #include <flow/flow_ebos_blackoil.hpp>
-#include <flow/flow_ebos_blackoil.cpp>
 #endif
 
 #include <opm/autodiff/SimulatorFullyImplicitBlackoilEbos.hpp>
