@@ -31,14 +31,14 @@
 
 #include <opm/autodiff/NonlinearSolverEbos.hpp>
 #include <opm/autodiff/BlackoilModelParametersEbos.hpp>
-#include <opm/autodiff/BlackoilWellModel.hpp>
-#include <opm/autodiff/BlackoilAquiferModel.hpp>
-#include <opm/autodiff/WellConnectionAuxiliaryModule.hpp>
+#include <opm/simulators/wells/BlackoilWellModel.hpp>
+#include <opm/simulators/aquifers/BlackoilAquiferModel.hpp>
+#include <opm/simulators/wells/WellConnectionAuxiliaryModule.hpp>
 #include <opm/autodiff/BlackoilDetails.hpp>
 
 #include <opm/grid/UnstructuredGrid.h>
 #include <opm/core/simulator/SimulatorReport.hpp>
-#include <opm/core/linalg/ParallelIstlInformation.hpp>
+#include <opm/simulators/linalg/ParallelIstlInformation.hpp>
 #include <opm/core/props/phaseUsageFromDeck.hpp>
 #include <opm/common/ErrorMacros.hpp>
 #include <opm/common/Exceptions.hpp>
@@ -49,7 +49,7 @@
 #include <opm/parser/eclipse/EclipseState/EclipseState.hpp>
 #include <opm/parser/eclipse/EclipseState/Tables/TableManager.hpp>
 
-#include <opm/autodiff/ISTLSolverEbos.hpp>
+#include <opm/simulators/linalg/ISTLSolverEbos.hpp>
 #include <opm/common/data/SimulationDataContainer.hpp>
 
 #include <dune/istl/owneroverlapcopy.hh>
@@ -69,16 +69,18 @@
 
 BEGIN_PROPERTIES
 
-#ifdef USE_DUNE_FEM_SOLVERS
-#if USE_AMGX_SOLVERS // AmgXSolverBackend
-#warning "Flow: Using AMGX solver backend"
-    NEW_TYPE_TAG(EclFlowProblem, INHERITS_FROM(BlackOilModel, EclBaseProblem, FlowNonLinearSolver, AmgXSolverBackend, FlowModelParameters, FlowTimeSteppingParameters));
-#else // FemSolverBackend
-    NEW_TYPE_TAG(EclFlowProblem, INHERITS_FROM(BlackOilModel, EclBaseProblem, FlowNonLinearSolver, FemSolverBackend, FlowModelParameters, FlowTimeSteppingParameters));
-#endif
-#else // Default ISTL solvers
-NEW_TYPE_TAG(EclFlowProblem, INHERITS_FROM(BlackOilModel, EclBaseProblem, FlowNonLinearSolver, FlowIstlSolver, FlowModelParameters, FlowTimeSteppingParameters));
-#endif
+//#ifdef USE_DUNE_FEM_SOLVERS
+//#if USE_AMGX_SOLVERS // AmgXSolverBackend
+//#warning "Flow: Using AMGX solver backend"
+//    NEW_TYPE_TAG(EclFlowProblem, INHERITS_FROM(BlackOilModel, EclBaseProblem, FlowNonLinearSolver, AmgXSolverBackend, FlowModelParameters, FlowTimeSteppingParameters));
+//#else // FemSolverBackend
+//    NEW_TYPE_TAG(EclFlowProblem, INHERITS_FROM(BlackOilModel, EclBaseProblem, FlowNonLinearSolver, FemSolverBackend, FlowModelParameters, FlowTimeSteppingParameters));
+//#endif
+//#else // Default ISTL solvers
+//NEW_TYPE_TAG(EclFlowProblem, INHERITS_FROM(BlackOilModel, EclBaseProblem, FlowNonLinearSolver, FlowIstlSolver, FlowModelParameters, FlowTimeSteppingParameters));
+//#endif
+
+NEW_TYPE_TAG(EclFlowProblem, INHERITS_FROM(BlackOilModel, EclBaseProblem, FlowNonLinearSolver, FlowModelParameters, FlowTimeSteppingParameters));
 SET_STRING_PROP(EclFlowProblem, OutputDir, "");
 SET_BOOL_PROP(EclFlowProblem, EnableDebuggingChecks, false);
 // default in flow is to formulate the equations in surface volumes
@@ -191,7 +193,6 @@ namespace Opm {
         /// \param[in] timer                  simulation timer
         void prepareStep(const SimulatorTimerInterface& timer)
         {
-
             // update the solution variables in ebos
             if ( timer.lastStepFailed() ) {
                 ebosSimulator_.model().updateFailed();
@@ -203,13 +204,8 @@ namespace Opm {
             // know the report step/episode index because of timing dependend data
             // despide the fact that flow uses its own time stepper. (The length of the
             // episode does not matter, though.)
-            Scalar t = timer.simulationTimeElapsed();
-            ebosSimulator_.startNextEpisode(/*episodeStartTime=*/t, /*episodeLength=*/1e30);
-            ebosSimulator_.setEpisodeIndex(timer.reportStepNum());
-            ebosSimulator_.setTime(t);
+            ebosSimulator_.setTime(timer.simulationTimeElapsed());
             ebosSimulator_.setTimeStepSize(timer.currentStepLength());
-            ebosSimulator_.setTimeStepIndex(ebosSimulator_.timeStepIndex() + 1);
-
             ebosSimulator_.problem().beginTimeStep();
 
             unsigned numDof = ebosSimulator_.model().numGridDof();
@@ -255,7 +251,7 @@ namespace Opm {
             report.total_linearizations = 1;
 
             try {
-                report += assemble(timer, iteration);
+                report += assembleReservoir(timer, iteration);
                 report.assemble_time += perfTimer.stop();
             }
             catch (...) {
@@ -302,12 +298,21 @@ namespace Opm {
                 const int nc = UgGridHelpers::numCells(grid_);
                 BVector x(nc);
 
+                // apply the Schur compliment of the well model to the reservoir linearized
+                // equations
+                wellModel().linearize(ebosSimulator().model().linearizer().jacobian(),
+                                      ebosSimulator().model().linearizer().residual());
+
+                // Solve the linear system.
+                linear_solve_setup_time_ = 0.0;
                 try {
                     solveJacobianSystem(x);
+                    report.linear_solve_setup_time += linear_solve_setup_time_;
                     report.linear_solve_time += perfTimer.stop();
                     report.total_linear_iterations += linearIterationsLastSolve();
                 }
                 catch (...) {
+                    report.linear_solve_setup_time += linear_solve_setup_time_;
                     report.linear_solve_time += perfTimer.stop();
                     report.total_linear_iterations += linearIterationsLastSolve();
 
@@ -360,7 +365,7 @@ namespace Opm {
         /// Called once after each time step.
         /// In this class, this function does nothing.
         /// \param[in] timer                  simulation timer
-        void afterStep(const SimulatorTimerInterface& OPM_UNUSED timer)
+        void afterStep(const SimulatorTimerInterface& timer OPM_UNUSED)
         {
             ebosSimulator_.problem().endTimeStep();
         }
@@ -369,13 +374,13 @@ namespace Opm {
         /// \param[in]      reservoir_state   reservoir state variables
         /// \param[in, out] well_state        well state variables
         /// \param[in]      initial_assembly  pass true if this is the first call to assemble() in this timestep
-        SimulatorReport assemble(const SimulatorTimerInterface& timer,
-                                 const int iterationIdx)
+        SimulatorReport assembleReservoir(const SimulatorTimerInterface& /* timer */,
+                                          const int iterationIdx)
         {
             // -------- Mass balance equations --------
             ebosSimulator_.model().newtonMethod().setIterationIndex(iterationIdx);
             ebosSimulator_.problem().beginIteration();
-            ebosSimulator_.model().linearizer().linearize();
+            ebosSimulator_.model().linearizer().linearizeDomain();
             ebosSimulator_.problem().endIteration();
 
             return wellModel().lastReport();
@@ -469,30 +474,26 @@ namespace Opm {
         /// r is the residual.
         void solveJacobianSystem(BVector& x)
         {
+            // finalize linearization process before accessing jacobian and residual
+            ebosSimulator_.model().linearizer().finalize();
 
             auto& ebosJac = ebosSimulator_.model().linearizer().jacobian();
             auto& ebosResid = ebosSimulator_.model().linearizer().residual();
-            // J = [A, B; C, D], where A is the reservoir equations, B and C the interaction of well
-            // with the reservoir and D is the wells itself.
-            // The full system is reduced to a number of cells X number of cells system via Schur complement
-            // A -= B^T D^-1 C
-            // If matrix_add_well_contribution is false, the Ax operator is modified. i.e Ax -= B^T D^-1 C x in the WellModelMatrixAdapter
-            // instead of A.
-            // The residual is modified similarly.
-            // r = [r, r_well], where r is the residual and r_well the well residual.
-            // r -= B^T * D^-1 r_well
-            wellModel().apply(ebosResid);
-            if (param_.matrix_add_well_contributions_) {
-                wellModel().addWellContributions(ebosJac);
-            }
-
-            ebosSimulator_.model().linearizer().finalize();
 
             // set initial guess
             x = 0.0;
 
             auto& ebosSolver = ebosSimulator_.model().newtonMethod().linearSolver();
+            Dune::Timer perfTimer;
+            perfTimer.start();
             ebosSolver.prepare(ebosJac, ebosResid);
+            linear_solve_setup_time_ = perfTimer.stop();
+            ebosSolver.setResidual(ebosResid);
+            // actually, the error needs to be calculated after setResidual in order to
+            // account for parallelization properly. since the residual of ECFV
+            // discretizations does not need to be synchronized across processes to be
+            // consistent, this is not relevant for OPM-flow...
+            ebosSolver.setMatrix(ebosJac);
             ebosSolver.solve(x);
        }
 
@@ -603,7 +604,7 @@ namespace Opm {
                 const auto& intQuants = elemCtx.intensiveQuantities(/*spaceIdx=*/0, /*timeIdx=*/0);
                 const auto& fs = intQuants.fluidState();
 
-                const double pvValue = ebosProblem.porosity(cell_idx) * ebosModel.dofTotalVolume( cell_idx );
+                const double pvValue = ebosProblem.referencePorosity(cell_idx, /*timeIdx=*/0) * ebosModel.dofTotalVolume( cell_idx );
                 pvSumLocal += pvValue;
 
                 for (unsigned phaseIdx = 0; phaseIdx < FluidSystem::numPhases; ++phaseIdx)
@@ -801,14 +802,6 @@ namespace Opm {
             auto report = getReservoirConvergence(timer.currentStepLength(), iteration, B_avg, residual_norms);
             report += wellModel().getWellConvergence(B_avg);
 
-            // Throw if any NaN or too large residual found.
-            ConvergenceReport::Severity severity = report.severityOfWorstFailure();
-            if (severity == ConvergenceReport::Severity::NotANumber) {
-                OPM_THROW(Opm::NumericalIssue, "NaN residual found!");
-            } else if (severity == ConvergenceReport::Severity::TooLarge) {
-                OPM_THROW(Opm::NumericalIssue, "Too large residual found!");
-            }
-
             return report;
         }
 
@@ -921,7 +914,7 @@ namespace Opm {
         double dsMax() const { return param_.ds_max_; }
         double drMaxRel() const { return param_.dr_max_rel_; }
         double maxResidualAllowed() const { return param_.max_residual_allowed_; }
-
+        double linear_solve_setup_time_;
     public:
         std::vector<bool> wasSwitched_;
     };
