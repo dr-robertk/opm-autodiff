@@ -27,7 +27,6 @@
 #include <opm/simulators/wells/WellInterface.hpp>
 #include <opm/simulators/linalg/ISTLSolverEbos.hpp>
 #include <opm/autodiff/RateConverter.hpp>
-#include <opm/autodiff/MatrixBlock.hpp>
 
 namespace Opm
 {
