@@ -171,11 +171,12 @@ opm_add_test(flow_blackoil_dunecpr
 
 opm_add_test(flow_amgxpetsc
   ONLY_COMPILE
-  ALWAYS_ENABLE
+  DEFAULT_ENABLE_IF ${AMGXSOLVER_FOUND}
   DEPENDS "opmsimulators"
   LIBRARIES "opmsimulators"
   SOURCES
-    flow/flow_amgxpetsc.cpp)
+    flow/flow_amgxpetsc.cpp
+	  flow/flow_ebos_blackoil.cpp)
 install(TARGETS flow_amgxpetsc DESTINATION bin)
 
 opm_add_test(flow_fempetsc
@@ -184,7 +185,8 @@ opm_add_test(flow_fempetsc
   DEPENDS "opmsimulators"
   LIBRARIES "opmsimulators"
   SOURCES
-    flow/flow_fempetsc.cpp)
+    flow/flow_fempetsc.cpp
+	  flow/flow_ebos_blackoil.cpp)
 install(TARGETS flow_fempetsc DESTINATION bin)
 
 opm_add_test(flow_blackoil
