@@ -69,18 +69,18 @@
 
 BEGIN_PROPERTIES
 
-//#ifdef USE_DUNE_FEM_SOLVERS
-//#if USE_AMGX_SOLVERS // AmgXSolverBackend
-//#warning "Flow: Using AMGX solver backend"
-//    NEW_TYPE_TAG(EclFlowProblem, INHERITS_FROM(BlackOilModel, EclBaseProblem, FlowNonLinearSolver, AmgXSolverBackend, FlowModelParameters, FlowTimeSteppingParameters));
-//#else // FemSolverBackend
-//    NEW_TYPE_TAG(EclFlowProblem, INHERITS_FROM(BlackOilModel, EclBaseProblem, FlowNonLinearSolver, FemSolverBackend, FlowModelParameters, FlowTimeSteppingParameters));
-//#endif
-//#else // Default ISTL solvers
-//NEW_TYPE_TAG(EclFlowProblem, INHERITS_FROM(BlackOilModel, EclBaseProblem, FlowNonLinearSolver, FlowIstlSolver, FlowModelParameters, FlowTimeSteppingParameters));
-//#endif
-
+#ifdef USE_DUNE_FEM_SOLVERS
+#if USE_AMGX_SOLVERS // AmgXSolverBackend
+#warning "Flow: Using AMGX solver backend"
+    NEW_TYPE_TAG(EclFlowProblem, INHERITS_FROM(BlackOilModel, EclBaseProblem, FlowNonLinearSolver, AmgXSolverBackend, FlowModelParameters, FlowTimeSteppingParameters));
+#else // FemSolverBackend
+    NEW_TYPE_TAG(EclFlowProblem, INHERITS_FROM(BlackOilModel, EclBaseProblem, FlowNonLinearSolver, FemSolverBackend, FlowModelParameters, FlowTimeSteppingParameters));
+#endif
+#else // Default ISTL solvers
 NEW_TYPE_TAG(EclFlowProblem, INHERITS_FROM(BlackOilModel, EclBaseProblem, FlowNonLinearSolver, FlowModelParameters, FlowTimeSteppingParameters));
+#endif
+
+//NEW_TYPE_TAG(EclFlowProblem, INHERITS_FROM(BlackOilModel, EclBaseProblem, FlowNonLinearSolver, FlowModelParameters, FlowTimeSteppingParameters));
 SET_STRING_PROP(EclFlowProblem, OutputDir, "");
 SET_BOOL_PROP(EclFlowProblem, EnableDebuggingChecks, false);
 // default in flow is to formulate the equations in surface volumes

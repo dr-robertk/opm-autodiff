@@ -20,24 +20,6 @@
 */
 #include "config.h"
 
-#if USE_AMGX_SOLVERS && ! HAVE_AMGXSOLVER
-#error "AmgXSolver is supposed to be used but package was not found!"
-#endif
-
-
-#if HAVE_DUNE_FEM && HAVE_PETSC
-#if FLOW_USE_DUNE_FEM_PETSC
-#define USE_DUNE_FEM_SOLVERS 1
-#define USE_DUNE_FEM_PETSC_SOLVERS 1
-#elif FLOW_USE_DUNE_FEM_ISTL
-#define USE_DUNE_FEM_SOLVERS 1
-#define USE_DUNE_FEM_ISTL_SOLVERS 1
-#elif FLOW_USE_DUNE_FEM_VIENNACL && HAVE_VIENNACL
-#define USE_DUNE_FEM_SOLVERS 1
-#define USE_DUNE_FEM_VIENNACL_SOLVERS 1
-#endif
-#endif
-
 #ifndef FLOW_SINGLE_PURPOSE
 #define ENABLE_FLOW_TWOPHASE 1
 #define ENABLE_FLOW_POLYMER 1
@@ -46,28 +28,14 @@
 #define ENABLE_FLOW_BLACKOIL 1
 #endif
 
-#if ENABLE_FLOW_TWOPHASE
+#include <flow/flow_ebos_blackoil.hpp>
 #include <flow/flow_ebos_gasoil.hpp>
 #include <flow/flow_ebos_oilwater.hpp>
-#endif
-
-#if ENABLE_FLOW_POLYMER
+#include <flow/flow_ebos_solvent.hpp>
 #include <flow/flow_ebos_polymer.hpp>
+#include <flow/flow_ebos_energy.hpp>
 #include <flow/flow_ebos_oilwater_polymer.hpp>
 #include <flow/flow_ebos_oilwater_polymer_injectivity.hpp>
-#endif
-
-#if ENABLE_FLOW_SOLVENT
-#include <flow/flow_ebos_solvent.hpp>
-#endif
-
-#if ENABLE_FLOW_ENERGY
-#include <flow/flow_ebos_energy.hpp>
-#endif
-
-#if ENABLE_FLOW_BLACKOIL
-#include <flow/flow_ebos_blackoil.hpp>
-#endif
 
 #include <opm/autodiff/SimulatorFullyImplicitBlackoilEbos.hpp>
 #include <opm/autodiff/FlowMainEbos.hpp>
@@ -262,7 +230,7 @@ int main(int argc, char** argv)
         // TODO: make sure that no illegal combinations like thermal and twophase are
         //       requested.
 
-        if(false)
+        if( false )
         {}
 #if ENABLE_FLOW_TWOPHASE
         // Twophase cases

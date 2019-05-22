@@ -17,6 +17,20 @@
 #ifndef FLOW_EBOS_BLACKOIL_HPP
 #define FLOW_EBOS_BLACKOIL_HPP
 
+#if HAVE_DUNE_FEM && HAVE_PETSC
+#if FLOW_USE_DUNE_FEM_PETSC
+#define USE_DUNE_FEM_SOLVERS 1
+#define USE_DUNE_FEM_PETSC_SOLVERS 1
+#elif FLOW_USE_DUNE_FEM_ISTL
+#define USE_DUNE_FEM_SOLVERS 1
+#define USE_DUNE_FEM_ISTL_SOLVERS 1
+#elif FLOW_USE_DUNE_FEM_VIENNACL && HAVE_VIENNACL
+#define USE_DUNE_FEM_SOLVERS 1
+#define USE_DUNE_FEM_VIENNACL_SOLVERS 1
+#endif
+#endif
+
+
 #include <opm/parser/eclipse/Deck/Deck.hpp>
 #include <opm/parser/eclipse/EclipseState/EclipseState.hpp>
 #include <opm/parser/eclipse/EclipseState/Schedule/Schedule.hpp>
