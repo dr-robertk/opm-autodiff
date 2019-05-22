@@ -150,17 +150,6 @@ opm_add_test(flow
   DEPENDS "opmsimulators"
   LIBRARIES "opmsimulators"
   SOURCES
-<<<<<<< HEAD
-    flow/flow.cpp
-    flow/flow_ebos_gasoil.cpp
-    flow/flow_ebos_oilwater.cpp
-    flow/flow_ebos_polymer.cpp
-    flow/flow_ebos_solvent.cpp
-    flow/flow_ebos_energy.cpp
-    flow/flow_ebos_oilwater_polymer.cpp
-    flow/flow_ebos_oilwater_polymer_injectivity.cpp)
-install(TARGETS flow DESTINATION bin)
-=======
   flow/flow.cpp
   flow/flow_ebos_blackoil.cpp
   flow/flow_ebos_gasoil.cpp
@@ -170,7 +159,6 @@ install(TARGETS flow DESTINATION bin)
   flow/flow_ebos_energy.cpp
   flow/flow_ebos_oilwater_polymer.cpp
   flow/flow_ebos_oilwater_polymer_injectivity.cpp)
->>>>>>> master
 
 opm_add_test(flow_blackoil_dunecpr
   ONLY_COMPILE
@@ -224,7 +212,7 @@ if (NOT BUILD_EBOS)
 else()
   set(EBOS_DEFAULT_ENABLE_IF "TRUE")
 endif()
-  
+
 # the research oriented general-purpose ECL simulator ("ebos" == &ecl
 # &black-&oil &simulator)
 opm_add_test(ebos
