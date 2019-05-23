@@ -194,18 +194,18 @@ public:
         if (!substep) {
             const auto& schedule = simulator_.vanguard().schedule();
             const auto& rft_config = schedule.rftConfig();
-            for (const auto& well: schedule.getWells(reportStepNum)) {
+            for (const auto& well: schedule.getWells2(reportStepNum)) {
 
                 // don't bother with wells not on this process
                 const auto& defunctWellNames = simulator_.vanguard().defunctWellNames();
-                if (defunctWellNames.find(well->name()) != defunctWellNames.end()) {
+                if (defunctWellNames.find(well.name()) != defunctWellNames.end()) {
                     continue;
                 }
 
                 if (!rft_config.active(reportStepNum))
                     continue;
 
-                for (const auto& connection: well->getConnections(reportStepNum)) {
+                for (const auto& connection: well.getConnections()) {
                     const size_t i = size_t(connection.getI());
                     const size_t j = size_t(connection.getJ());
                     const size_t k = size_t(connection.getK());
@@ -730,24 +730,24 @@ public:
     {
         const auto& schedule = simulator_.vanguard().schedule();
         const auto& rft_config = schedule.rftConfig();
-        for (const auto& well: schedule.getWells(reportStepNum)) {
+        for (const auto& well: schedule.getWells2(reportStepNum)) {
 
             // don't bother with wells not on this process
             const auto& defunctWellNames = simulator_.vanguard().defunctWellNames();
-            if (defunctWellNames.find(well->name()) != defunctWellNames.end()) {
+            if (defunctWellNames.find(well.name()) != defunctWellNames.end()) {
                 continue;
             }
 
             //add data infrastructure for shut wells
-            if (!wellDatas.count(well->name())) {
+            if (!wellDatas.count(well.name())) {
                 Opm::data::Well wellData;
 
                 if (!rft_config.active(reportStepNum))
                     continue;
 
-                wellData.connections.resize(well->getConnections(reportStepNum).size());
+                wellData.connections.resize(well.getConnections().size());
                 size_t count = 0;
-                for (const auto& connection: well->getConnections(reportStepNum)) {
+                for (const auto& connection: well.getConnections()) {
                     const size_t i = size_t(connection.getI());
                     const size_t j = size_t(connection.getJ());
                     const size_t k = size_t(connection.getK());
@@ -757,10 +757,10 @@ public:
                     connectionData.index = index;
                     count++;
                 }
-                wellDatas.emplace(std::make_pair(well->name(), wellData));
+                wellDatas.emplace(std::make_pair(well.name(), wellData));
             }
 
-            Opm::data::Well& wellData = wellDatas.at(well->name());
+            Opm::data::Well& wellData = wellDatas.at(well.name());
             for (auto& connectionData: wellData.connections) {
                 const auto index = connectionData.index;
                 if (oilConnectionPressures_.count(index) > 0)
@@ -1231,7 +1231,7 @@ private:
                 // Gas dissolved in oil and vaporized oil
                 Scalar gasInPlaceLiquid = Opm::getValue(fs.Rs()) * fip[oilPhaseIdx];
                 Scalar oilInPlaceGas = Opm::getValue(fs.Rv()) * fip[gasPhaseIdx];
-                if (fip_[FipDataType::GasInPlaceInGasPhase].size() > 0)
+                if (fip_[FipDataType::GasInPlaceInLiquidPhase].size() > 0)
                     fip_[FipDataType::GasInPlaceInLiquidPhase][globalDofIdx] = gasInPlaceLiquid;
                 if (fip_[FipDataType::OilInPlaceInGasPhase].size() > 0)
                     fip_[FipDataType::OilInPlaceInGasPhase][globalDofIdx] = oilInPlaceGas;
