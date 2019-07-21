@@ -82,6 +82,9 @@ include (CMakeLists_files.cmake)
 macro (config_hook)
 	opm_need_version_of ("dune-common")
 	opm_need_version_of ("dune-istl")
+	opm_need_version_of ("dune-geometry")
+	opm_need_version_of ("dune-grid")
+	opm_need_version_of ("dune-fem")
 	opm_need_version_of ("ewoms")
 endmacro (config_hook)
 
@@ -182,7 +185,7 @@ if (NOT BUILD_EBOS)
 else()
   set(EBOS_DEFAULT_ENABLE_IF "TRUE")
 endif()
-  
+
 # the research oriented general-purpose ECL simulator ("ebos" == &ecl
 # &black-&oil &simulator)
 opm_add_test(ebos
