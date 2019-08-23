@@ -79,6 +79,10 @@ include (CMakeLists_files.cmake)
 macro (config_hook)
   opm_need_version_of ("dune-common")
   opm_need_version_of ("dune-istl")
+  opm_need_version_of ("dune-geometry")
+  opm_need_version_of ("dune-grid")
+  # if available the version is needed
+  opm_need_version_of ("dune-fem")
   opm_need_version_of ("ewoms")
 endmacro (config_hook)
 
