@@ -20,6 +20,9 @@
 */
 #include "config.h"
 
+//#if ! FLOW_SELECTIVE_MODE
+
+
 #include <flow/flow_ebos_blackoil.hpp>
 #include <flow/flow_ebos_gasoil.hpp>
 #include <flow/flow_ebos_oilwater.hpp>
@@ -227,7 +230,12 @@ int main(int argc, char** argv)
         //       requested.
 
         // Twophase cases
-        if( phases.size() == 2 ) {
+        if ( false )
+        {
+        }
+
+#if FLOW_ENABLE_TWOPHASE
+        else if( phases.size() == 2 ) {
             // oil-gas
             if (phases.active( Opm::Phase::GAS ))
             {
@@ -246,7 +254,9 @@ int main(int argc, char** argv)
                 return EXIT_FAILURE;
             }
         }
+#endif
         // Polymer case
+#if FLOW_ENABLE_POLYMER
         else if ( phases.active( Opm::Phase::POLYMER ) ) {
 
             if ( !phases.active( Opm::Phase::WATER) ) {
@@ -272,26 +282,39 @@ int main(int argc, char** argv)
                 return Opm::flowEbosPolymerMain(argc, argv);
             }
         }
+#endif
+
+#if FLOW_ENABLE_FOAM
         // Foam case
         else if ( phases.active( Opm::Phase::FOAM ) ) {
             Opm::flowEbosFoamSetDeck(externalSetupTimer.elapsed(), *deck, *eclipseState, *schedule, *summaryConfig);
             return Opm::flowEbosFoamMain(argc, argv);
         }
+#endif
+
+#if FLOW_ENABLE_SOLVENT
         // Solvent case
         else if ( phases.active( Opm::Phase::SOLVENT ) ) {
             Opm::flowEbosSolventSetDeck(externalSetupTimer.elapsed(), *deck, *eclipseState, *schedule, *summaryConfig);
             return Opm::flowEbosSolventMain(argc, argv);
         }
+#endif
+
+#if FLOW_ENABLE_ENERGY
         // Energy case
         else if (eclipseState->getSimulationConfig().isThermal()) {
             Opm::flowEbosEnergySetDeck(externalSetupTimer.elapsed(), *deck, *eclipseState, *schedule, *summaryConfig);
             return Opm::flowEbosEnergyMain(argc, argv);
         }
+#endif
+
+#if FLOW_ENABLE_BLACKOIL
         // Blackoil case
         else if( phases.size() == 3 ) {
             Opm::flowEbosBlackoilSetDeck(externalSetupTimer.elapsed(), *deck, *eclipseState, *schedule, *summaryConfig);
             return Opm::flowEbosBlackoilMain(argc, argv);
         }
+#endif
         else
         {
             if (outputCout)

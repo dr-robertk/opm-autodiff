@@ -23,6 +23,13 @@ option(BUILD_EBOS "Build the research oriented ebos simulator?" ON)
 option(BUILD_EBOS_EXTENSIONS "Build the variants for various extensions of ebos by default?" OFF)
 option(BUILD_EBOS_DEBUG_EXTENSIONS "Build the ebos variants which are purely for debugging by default?" OFF)
 
+option(BUILD_FLOW_BLACKOIL "Enable blackoil option in flow simulator" ON)
+option(BUILD_FLOW_SOLVENT  "Enable solvent option in flow simulator" ON)
+option(BUILD_FLOW_ENERGY   "Enable energy option in flow simulator" ON)
+option(BUILD_FLOW_POLYMER  "Enable polymer option in flow simulator" ON)
+option(BUILD_FLOW_TWOPHASE "Enable twophase option in flow simulator" ON)
+option(BUILD_FLOW_FOAM     "Enable foam option in flow simulator" ON)
+
 if(SIBLING_SEARCH AND NOT opm-common_DIR)
   # guess the sibling dir
   get_filename_component(_leaf_dir_name ${PROJECT_BINARY_DIR} NAME)
@@ -140,6 +147,32 @@ else()
   set(FLOW_DEFAULT_ENABLE_IF "TRUE")
 endif()
 
+set(FLOW_SOURCES flow/flow.cpp)
+
+if( BUILD_FLOW_BLACKOIL )
+  set(FLOW_SOURCES ${FLOW_SOURCES} flow/flow_ebos_blackoil.cpp)
+endif()
+
+if( BUILD_FLOW_TWOPHASE )
+  set(FLOW_SOURCES ${FLOW_SOURCES} flow/flow_ebos_gasoil.cpp flow/flow_ebos_oilwater.cpp)
+endif()
+
+if( BUILD_FLOW_SOLVENT )
+  set(FLOW_SOURCES ${FLOW_SOURCES} flow/flow_ebos_solvent.cpp)
+endif()
+
+if( BUILD_FLOW_ENERGY )
+  set(FLOW_SOURCES ${FLOW_SOURCES} flow/flow_ebos_energy.cpp)
+endif()
+
+if( BUILD_FLOW_POLYMER )
+  set(FLOW_SOURCES ${FLOW_SOURCES} flow/flow_ebos_polymer.cpp flow/flow_ebos_oilwater_polymer.cpp flow/flow_ebos_oilwater_polymer_injectivity.cpp)
+endif()
+
+if( BUILD_FLOW_FOAM )
+  set(FLOW_SOURCES ${FLOW_SOURCES} flow/flow_ebos_foam.cpp)
+endif()
+
 # the production oriented general-purpose ECL simulator
 opm_add_test(flow
   ONLY_COMPILE
@@ -147,17 +180,8 @@ opm_add_test(flow
   DEFAULT_ENABLE_IF ${FLOW_DEFAULT_ENABLE_IF}
   DEPENDS "opmsimulators"
   LIBRARIES "opmsimulators"
-  SOURCES
-  flow/flow.cpp
-  flow/flow_ebos_blackoil.cpp
-  flow/flow_ebos_gasoil.cpp
-  flow/flow_ebos_oilwater.cpp
-  flow/flow_ebos_polymer.cpp
-  flow/flow_ebos_foam.cpp
-  flow/flow_ebos_solvent.cpp
-  flow/flow_ebos_energy.cpp
-  flow/flow_ebos_oilwater_polymer.cpp
-  flow/flow_ebos_oilwater_polymer_injectivity.cpp)
+  SOURCES ${FLOW_SOURCES})
+add_definitions("-DFLOW_ENABLE_BLACKOIL=1")
 
 opm_add_test(flow_blackoil_dunecpr
   ONLY_COMPILE
