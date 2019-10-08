@@ -33,6 +33,7 @@
 #include <opm/simulators/wells/BlackoilWellModel.hpp>
 #include <opm/simulators/aquifers/BlackoilAquiferModel.hpp>
 #include <opm/simulators/linalg/ISTLSolverEbos.hpp>
+#include <opm/simulators/linalg/femsolverbackend.hh>
 
 #include <opm/models/utils/start.hh>
 
@@ -73,7 +74,7 @@ SET_BOOL_PROP(EbosTypeTag, UseVolumetricResidual, false);
 SET_TYPE_PROP(EbosTypeTag, EclAquiferModel, Opm::BlackoilAquiferModel<TypeTag>);
 
 // use flow's linear solver backend for now
-SET_TAG_PROP(EbosTypeTag, LinearSolverSplice, FlowIstlSolver);
+//SET_TAG_PROP(EbosTypeTag, LinearSolverSplice, FlowIstlSolver);
 
 // the default for the allowed volumetric error for oil per second
 SET_SCALAR_PROP(EbosTypeTag, NewtonTolerance, 1e-1);
@@ -108,6 +109,35 @@ SET_INT_PROP(EbosTypeTag, ThreadsPerProcess, 2);
 // By default, ebos accepts the result of the time integration unconditionally if the
 // smallest time step size is reached.
 SET_BOOL_PROP(EbosTypeTag, ContinueOnConvergenceError, true);
+
+
+#if HAVE_PETSC && HAVE_DUNE_FEM
+#if DUNE_VERSION_NEWER(DUNE_FEM, 2, 7)
+#warning "Using PETSC solvers through dune-fem"
+
+// enable the polymer extension of the black oil model
+SET_PROP(EbosTypeTag, SparseMatrixAdapter)
+{
+private:
+  typedef typename GET_PROP_TYPE(TypeTag, DiscreteFunctionSpace) DiscreteFunctionSpace;
+  //typedef typename GET_PROP_TYPE(TypeTag, PrimaryVariables) PrimaryVariables;
+  // discrete function storing solution data
+  typedef Dune::Fem::ISTLBlockVectorDiscreteFunction<DiscreteFunctionSpace> DiscreteFunction;
+
+public:
+  typedef Opm::Linear::FemPetscMatrixAdapter< DiscreteFunction > type;
+};
+
+// enable the polymer extension of the black oil model
+SET_PROP(EbosTypeTag, LinearSolverBackend)
+{
+public:
+  typedef Opm::Linear::FemSolverBackend< TypeTag >  type;
+};
+
+#endif // DUNE_VERSION_NEWER(DUNE_FEM, 2, 7)
+#endif //
+
 
 END_PROPERTIES
 
