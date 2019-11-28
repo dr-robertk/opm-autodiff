@@ -46,7 +46,7 @@ template <int codim>
 class EntityPointer;
 }
 
-#if DUNE_VERSION_NEWER(DUNE_FEM, 2, 6)
+#if DUNE_VERSION_NEWER(DUNE_FEM, 2, 6) && ! DUNE_VERSION_NEWER(DUNE_FEM, 2, 7)
 template <int dim, int cdim>
 auto referenceElement(const Dune::cpgrid::Geometry<dim, cdim>& geo)
     -> decltype(referenceElement<double, dim>(geo.type()))
@@ -61,6 +61,7 @@ namespace Fem {
 //  make_entity for CpGrid entities
 //
 ////////////////////////////////////////////////////////////
+#if ! DUNE_VERSION_NEWER(DUNE_GRID, 2, 6)
 template <int codim>
 inline Dune::cpgrid::Entity<codim> make_entity(const Dune::cpgrid::EntityPointer<codim>& entityPointer)
 { return *entityPointer; }
@@ -68,6 +69,7 @@ inline Dune::cpgrid::Entity<codim> make_entity(const Dune::cpgrid::EntityPointer
 template <int codim>
 inline Dune::cpgrid::Entity<codim> make_entity(Dune::cpgrid::Entity<codim> entity)
 { return std::move(entity); }
+#endif
 
 ////////////////////////////////////////////////////////////
 //
