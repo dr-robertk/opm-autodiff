@@ -45,6 +45,7 @@
 #define EBOS_USE_ALUGRID 0
 #endif
 
+#include "femcpgridcompat.hh"
 #if EBOS_USE_ALUGRID
 #include "eclalugridvanguard.hh"
 #else
@@ -226,7 +227,7 @@ private:
 public:
     typedef Opm::EcfvStencil<Scalar,
                              GridView,
-                             /*needIntegrationPos=*/false,
+                             /*needIntegrationPos=*/true, //Hack we need this for the SO stuff
                              /*needNormal=*/false> type;
 };
 

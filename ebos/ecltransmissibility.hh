@@ -409,7 +409,15 @@ public:
      * \brief Return the transmissibility for the intersection between two elements.
      */
     Scalar transmissibility(unsigned elemIdx1, unsigned elemIdx2) const
-    { return trans_.at(isId_(elemIdx1, elemIdx2)); }
+    {
+        //return trans_.at(isId_(elemIdx1, elemIdx2));
+        try {
+            return trans_.at(isId_(elemIdx1, elemIdx2));
+        }
+        catch (const std::out_of_range& e) {
+            return Scalar(0);
+        }
+    }
 
     /*!
      * \brief Return the transmissibility for a given boundary segment.

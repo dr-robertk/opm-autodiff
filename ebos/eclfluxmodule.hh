@@ -124,6 +124,11 @@ class EclTransExtensiveQuantities
     typedef Dune::FieldVector<Scalar, dimWorld> DimVector;
     typedef Dune::FieldVector<Evaluation, dimWorld> EvalDimVector;
     typedef Dune::FieldMatrix<Scalar, dimWorld, dimWorld> DimMatrix;
+    typedef typename GET_PROP_TYPE(TypeTag, PrimaryVariables) PrimaryVariables;
+    enum { dimRange  = PrimaryVariables::dimension };
+    const bool localRecons = EWOMS_GET_PARAM(TypeTag, bool, EnableLocalReconstruction);
+    //typedef Dune::FieldVector< Evaluation, dimRange > RangeType;
+    typedef Dune::FieldVector< Evaluation, dimRange > EvalRangeVector;
 
 public:
     /*!
@@ -254,6 +259,11 @@ protected:
         // exterior DOF)
         Scalar distZ = zIn - zEx;
 
+        EvalRangeVector upstreamMobility( 0 );
+        EvalRangeVector downstreamMobility( 0 );
+
+        const bool higherOrder = elemCtx.model().enableHigherOrder();
+
         for (unsigned phaseIdx=0; phaseIdx < numPhases; phaseIdx++) {
             if (!FluidSystem::phaseIsActive(phaseIdx))
                 continue;
@@ -289,6 +299,9 @@ protected:
             if (pressureDifference_[phaseIdx] > 0.0) {
                 upIdx_[phaseIdx] = exteriorDofIdx_;
                 dnIdx_[phaseIdx] = interiorDofIdx_;
+                // in this case select downstream to be upstream
+                //upstreamMobility[ phaseIdx ] = downstreamMobility[ phaseIdx ];
+
             }
             else if (pressureDifference_[phaseIdx] < 0.0) {
                 upIdx_[phaseIdx] = interiorDofIdx_;
@@ -341,20 +354,34 @@ protected:
             // this is slightly hacky because in the automatic differentiation case, it
             // only works for the element centered finite volume method. for ebos this
             // does not matter, though.
-            unsigned upstreamIdx = upstreamIndex_(phaseIdx);
-            const auto& up = elemCtx.intensiveQuantities(upstreamIdx, timeIdx);
+            if (!higherOrder) {
+                unsigned upstreamIdx = upstreamIndex_(phaseIdx);
+                const auto& up = elemCtx.intensiveQuantities(upstreamIdx, timeIdx);
 
-            // TODO: should the rock compaction transmissibility multiplier be upstreamed
-            // or averaged? all fluids should see the same compaction?!
-            const Evaluation& transMult =
-                problem.template rockCompTransMultiplier<Evaluation>(up, stencil.globalSpaceIndex(upstreamIdx));
+                // TODO: should the rock compaction transmissibility multiplier be upstreamed
+                // or averaged? all fluids should see the same compaction?!
+                const Evaluation& transMult =
+                    problem.template rockCompTransMultiplier<Evaluation>(up, stencil.globalSpaceIndex(upstreamIdx));
 
-            if (upstreamIdx == interiorDofIdx_)
-                volumeFlux_[phaseIdx] =
-                    pressureDifference_[phaseIdx]*up.mobility(phaseIdx)*transMult*(-trans/faceArea);
-            else
-                volumeFlux_[phaseIdx] =
-                    pressureDifference_[phaseIdx]*(Toolbox::value(up.mobility(phaseIdx))*Toolbox::value(transMult)*(-trans/faceArea));
+                if (upstreamIdx == interiorDofIdx_)
+                    volumeFlux_[phaseIdx] =
+                        pressureDifference_[phaseIdx]*up.mobility(phaseIdx)*transMult*(-trans/faceArea);
+                else
+                    volumeFlux_[phaseIdx] =
+                        pressureDifference_[phaseIdx]*(Toolbox::value(up.mobility(phaseIdx))*Toolbox::value(transMult)*(-trans/faceArea));
+            }
+            else {
+                const auto& integrationPos = scvf.integrationPos();
+                // first evaluate both higher order functions
+                //Evaluation mob(0);
+                Evaluation upstreamMobilityLocal;
+                elemCtx.problem().model().evaluateReconstruction( elemCtx,
+                                                                  upstreamIndex_(phaseIdx),
+                                                                  phaseIdx,
+                                                                  integrationPos,
+                                                                  upstreamMobilityLocal);
+                volumeFlux_[phaseIdx] = pressureDifference_[phaseIdx]*upstreamMobilityLocal*(-trans/faceArea);
+            }
         }
     }
 

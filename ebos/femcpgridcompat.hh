@@ -31,11 +31,18 @@
 #ifndef EWOMS_FEM_CPGRID_COMPAT_HH
 #define EWOMS_FEM_CPGRID_COMPAT_HH
 
-#if HAVE_DUNE_FEM
 #include <dune/common/version.hh>
+#include <dune/grid/common/geometry.hh>
+
+#if HAVE_OPM_GRID
+#include <opm/grid/CpGrid.hpp>
+#endif
+
+#if HAVE_DUNE_FEM
 #include <dune/fem/gridpart/common/gridpart.hh>
 #include <dune/fem/misc/compatibility.hh>
 #include <dune/fem/io/streams/streams.hh>
+#endif // #if HAVE_DUNE_FEM
 
 namespace Dune {
 namespace cpgrid {
@@ -46,13 +53,8 @@ template <int codim>
 class EntityPointer;
 }
 
-#if DUNE_VERSION_NEWER(DUNE_FEM, 2, 6) && ! DUNE_VERSION_NEWER(DUNE_FEM, 2, 7)
-template <int dim, int cdim>
-auto referenceElement(const Dune::cpgrid::Geometry<dim, cdim>& geo)
-    -> decltype(referenceElement<double, dim>(geo.type()))
-{ return referenceElement<double, dim>(geo.type()); }
-#endif
 
+#if HAVE_DUNE_FEM
 // specialization of dune-fem compatiblity functions for CpGrid, since CpGrid does not use the interface classes.
 namespace Fem {
 
@@ -87,9 +89,22 @@ struct GridEntityAccess<Dune::cpgrid::Entity<codim> >
 };
 
 } // namespace Fem
+#endif // #if HAVE_DUNE_FEM
+
+#if HAVE_OPM_GRID
+//#if DUNE_VERSION_NEWER(DUNE_GRID, 2, 6) && ! DUNE_VERSION_NEWER(DUNE_GRID, 2, 7)
+template <int dim, int cdim>
+auto referenceElement(const Dune::cpgrid::Geometry<dim, cdim>& geo)
+    -> decltype(referenceElement<double, dim>(geo.type()))
+{ return referenceElement<double, dim>(geo.type()); }
+
+template <int codim>
+auto referenceElement(const Dune::cpgrid::Entity<codim>& entity)
+    -> decltype(referenceElement<double, 3>(entity.type()))
+{ return referenceElement<double, 3>(entity.type()); }
+//#endif
+#endif
 
 } // end namespace Dune
-
-#endif // #if HAVE_DUNE_FEM
 
 #endif // EWOMS_FEM_CPGRID_COMPAT_HH

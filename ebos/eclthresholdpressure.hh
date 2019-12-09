@@ -144,7 +144,7 @@ public:
         thpres_.resize(numEquilRegions_*numEquilRegions_, 0.0);
         thpresDefault_.resize(numEquilRegions_*numEquilRegions_, 0.0);
 
-        computeDefaultThresholdPressures_();
+        // computeDefaultThresholdPressures_();
         applyExplicitThresholdPressures_();
     }
 
