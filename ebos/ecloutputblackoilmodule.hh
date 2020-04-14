@@ -212,8 +212,8 @@ public:
      */
     void allocBuffers(unsigned bufferSize, unsigned reportStepNum, const bool substep, const bool log, const bool isRestart)
     {
-        if (!std::is_same<Discretization, Opm::EcfvDiscretization<TypeTag> >::value)
-            return;
+        //if (!std::is_same<Discretization, Opm::EcfvDiscretization<TypeTag> >::value)
+        //    return;
 
         // Summary output is for all steps
         const Opm::SummaryConfig summaryConfig = simulator_.vanguard().summaryConfig();
@@ -444,8 +444,8 @@ public:
      */
     void processElement(const ElementContext& elemCtx)
     {
-        if (!std::is_same<Discretization, Opm::EcfvDiscretization<TypeTag> >::value)
-            return;
+        //if (!std::is_same<Discretization, Opm::EcfvDiscretization<TypeTag> >::value)
+        //    return;
 
         const auto& problem = elemCtx.simulator().problem();
         for (unsigned dofIdx = 0; dofIdx < elemCtx.numPrimaryDof(/*timeIdx=*/0); ++dofIdx) {
@@ -869,8 +869,8 @@ public:
      */
     void assignToSolution(Opm::data::Solution& sol)
     {
-        if (!std::is_same<Discretization, Opm::EcfvDiscretization<TypeTag>>::value)
-            return;
+        //if (!std::is_same<Discretization, Opm::EcfvDiscretization<TypeTag>>::value)
+            //return;
 
         if (oilPressure_.size() > 0) {
             sol.insert("PRESSURE", Opm::UnitSystem::measure::pressure, std::move(oilPressure_), Opm::data::TargetType::RESTART_SOLUTION);
