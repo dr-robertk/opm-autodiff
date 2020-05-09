@@ -130,7 +130,14 @@ class EclTransExtensiveQuantities
     //typedef Dune::FieldVector< Evaluation, dimRange > RangeType;
     typedef Dune::FieldVector< Evaluation, dimRange > EvalRangeVector;
 
+    typedef typename GridView::ctype CoordScalar;
+    typedef Dune::FieldVector<CoordScalar, dimWorld> GlobalPosition;
+
 public:
+    EclTransExtensiveQuantities() :
+        saturationDifferenceThreshold_( EWOMS_GET_PARAM(TypeTag, Scalar, SaturationDifferenceThreshold) )
+    {}
+
     /*!
      * \brief Return the intrinsic permeability tensor at a face [m^2]
      */
@@ -235,6 +242,8 @@ protected:
         unsigned I = stencil.globalSpaceIndex(interiorDofIdx_);
         unsigned J = stencil.globalSpaceIndex(exteriorDofIdx_);
 
+        const GlobalPosition& pos = elemCtx.pos(interiorDofIdx_, timeIdx);
+
         Scalar trans = problem.transmissibility(elemCtx, interiorDofIdx_, exteriorDofIdx_);
         Scalar faceArea = scvf.area();
         Scalar thpres = problem.thresholdPressure(I, J);
@@ -262,7 +271,8 @@ protected:
         EvalRangeVector upstreamMobility( 0 );
         EvalRangeVector downstreamMobility( 0 );
 
-        const bool higherOrder = elemCtx.model().enableHigherOrder();
+        //const bool higherOrder = elemCtx.model().enableHigherOrder();
+        Evaluation saturationDifference_[numPhases];
 
         for (unsigned phaseIdx=0; phaseIdx < numPhases; phaseIdx++) {
             if (!FluidSystem::phaseIsActive(phaseIdx))
@@ -350,6 +360,25 @@ protected:
                 volumeFlux_[phaseIdx] = 0.0;
                 continue;
             }
+
+            //Evaluating saturation for adaptive higher order
+            //const auto& intQuantsIn = elemCtx.intensiveQuantities(i, timeIdx);
+            //const auto& intQuantsEx = elemCtx.intensiveQuantities(j, timeIdx);
+            bool higherOrder = elemCtx.model().enableHigherOrder();
+
+            const Evaluation& saturationInterior = intQuantsIn.fluidState().saturation(phaseIdx);
+            Evaluation saturationExterior = Toolbox::value(intQuantsEx.fluidState().saturation(phaseIdx));
+
+            saturationDifference_[phaseIdx] = saturationExterior - saturationInterior;
+
+            const double saturationThreshold = saturationDifferenceThreshold_;
+            //auto test = saturationDifference_[phaseIdx] - saturationThreshold;
+
+            if ( ( saturationDifference_[phaseIdx] < saturationThreshold) && ( saturationDifference_[phaseIdx] > (0.0 - saturationThreshold)) ){
+                higherOrder = false;
+            }
+           // else
+            //    std::cout << "saturationDifference_[phaseIdx] = " << saturationDifference_[phaseIdx] << ", global position " << pos << std::endl;
 
             // this is slightly hacky because in the automatic differentiation case, it
             // only works for the element centered finite volume method. for ebos this
@@ -518,6 +547,9 @@ private:
     // the difference in effective pressure between the exterior and the interior degree
     // of freedom [Pa]
     Evaluation pressureDifference_[numPhases];
+
+    // threshold for selective higher order
+    const double saturationDifferenceThreshold_;
 
     // the local indices of the interior and exterior degrees of freedom
     unsigned short interiorDofIdx_;
